@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+dist/
+lib-cov/
+coverage/
+.npm
+.DS_Store
+
+# Expo
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+*.keystore
+
+# Local config
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build artifacts
+ios/build/
+android/build/
+*.app
+*.ipa
+*.apk
+*.aar
+
+# Temporary files
+tmp/
+temp/
+*.log
+
+# Example specific
+example/node_modules/
+example/.expo/
+example/dist/
