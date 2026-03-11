@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>ZK Worker</title>
+</head>
+
+<body>
+    <div id="status">Initializing...</div>
+    <script>
+        // ==========================================
+        // WASM Bindings (Full set from pkg-web/zk_face_wasm.js)
+        // BUILD TIMESTAMP: 2025-12-22T17:00:00 [CACHE_BUST]
+        // ==========================================
+        const BUILD_TIMESTAMP = "2025-12-22T17:00:00";
+        let wasm;
+
+        const heap = new Array(128).fill(undefined);
+        heap.push(undefined, null, true, false);
+
+        function getObject(idx) { return heap[idx]; }
+
+        let heap_next = heap.length;
+
+        function dropObject(idx) {
+            if (idx < 132) return;
+            heap[idx] = heap_next;
+            heap_next = idx;
+        }
+
+        function takeObject(idx) {
+            const ret = getObject(idx);
+            dropObject(idx);
+            return ret;
+        }
+
+
+
+        function isLikeNone(x) {
+            return x === undefined || x === null;
+        }
+
+        // --- Memory Views ---
+        let cachedDataViewMemory0 = null;
+        function getDataViewMemory0() {
+            if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
+                cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
+            }
+            return cachedDataViewMemory0;
+        }
+
+        let cachedUint8ArrayMemory0 = null;
+        function getUint8ArrayMemory0() {
+            if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0) {
+                cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
+            }
+            return cachedUint8ArrayMemory0;
+        }
+
+        function getArrayU8FromWasm0(ptr, len) {
+            ptr = ptr >>> 0;
+            return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+        }
+
+        // --- String Handling ---
+        let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+        cachedTextDecoder.decode();
+
+        function getStringFromWasm0(ptr, len) {
+            ptr = ptr >>> 0;
+            return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+        }
+
+        let WASM_VECTOR_LEN = 0;
+        let cachedTextEncoder = new TextEncoder('utf-8');
+
+        const encodeString = (typeof cachedTextEncoder.encodeInto === 'function'
+            ? function (arg, view) {
+                return cachedTextEncoder.encodeInto(arg, view);
+            }
+            : function (arg, view) {
+                const buf = cachedTextEncoder.encode(arg);
+                view.set(buf);
+                return {
+                    read: arg.length,
+                    written: buf.length
+                };
+            });
+
+        function passStringToWasm0(arg, malloc, realloc) {
+            if (realloc === undefined) {
+                const buf = cachedTextEncoder.encode(arg);
+                const ptr = malloc(buf.length, 1) >>> 0;
+                getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+                WASM_VECTOR_LEN = buf.length;
+                return ptr;
+            }
+
+            let len = arg.length;
+            let ptr = malloc(len, 1) >>> 0;
+            const mem = getUint8ArrayMemory0();
+            let offset = 0;
+
+            for (; offset < len; offset++) {
+                const code = arg.charCodeAt(offset);
+                if (code > 0x7F) break;
+                mem[ptr + offset] = code;
+            }
+            if (offset !== len) {
+                if (offset !== 0) {
+                    arg = arg.slice(offset);
+                }
+                ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+                const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+                const ret = encodeString(arg, view);
+                offset += ret.written;
+            }
+            WASM_VECTOR_LEN = offset;
+            return ptr;
+        }
+
+
+
+        function takeFromExternrefTable0(idx) {
+            const value = wasm.__wbindgen_externrefs.get(idx);
+            wasm.__externref_table_dealloc(idx);
+            return value;
+        }
+
+        // --- THE FULL IMPORTS OBJECT ---
+        function getImports() {
+            const wbg = {};
+
+            wbg.__wbg_error_7534b8e9a36f1ab4 = function (arg0, arg1) {
+                let deferred0_0;
+                let deferred0_1;
+                try {
+                    deferred0_0 = arg0;
+                    deferred0_1 = arg1;
+                    console.error(getStringFromWasm0(arg0, arg1));
+                } finally {
+                    wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
+                }
+            };
+            wbg.__wbg_new_8a6f238a6ece86ea = function () {
+                const ret = new Error();
+                return ret;
+            };
+            wbg.__wbg_stack_0ed75d68575b0f3c = function (arg0, arg1) {
+                const ret = arg1.stack;
+                const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+                const len1 = WASM_VECTOR_LEN;
+                getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+                getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+            };
+            wbg.__wbindgen_cast_2241b6af4c4b2941 = function (arg0, arg1) {
+                const ret = getStringFromWasm0(arg0, arg1);
+                return ret;
+            };
+            wbg.__wbindgen_init_externref_table = function () {
+                const table = wasm.__wbindgen_externrefs;
+                const offset = table.grow(4);
+                table.set(0, undefined);
+                table.set(offset + 0, undefined);
+                table.set(offset + 1, null);
+                table.set(offset + 2, true);
+                table.set(offset + 3, false);
+            };
+
+            // DUAL-MODE RETURN
+            return {
+                wbg: wbg,
+                './zk_face_wasm_bg.js': wbg
+            };
+        }
+
+        function finalizeInit(instance, module) {
+            wasm = instance.exports;
+            cachedUint8ArrayMemory0 = null;
+            cachedDataViewMemory0 = null;
+
+            // Critical: Initialize the externref table
+            wasm.__wbindgen_start();
+            return wasm;
+        }
+
+        // ==========================================
+        // Main Application Logic
+        // ==========================================
+
+        function log(msg) {
+            console.log(msg);
+            if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'log', message: msg }));
+            }
+        }
+
+        function base64ToUint8Array(base64) {
+            // Basic Base64 decoding - ensure whitespace is removed
+            const cleanBase64 = base64.replace(/\s/g, '');
+            const binary_string = window.atob(cleanBase64);
+            const len = binary_string.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
+            }
+            return bytes;
+        }
+
+        // Initialize WASM (Plonky3 - No Proving Key Needed!)
+        async function initWasm(base64Data) {
+            try {
+                log('[ZK Worker] Instantiating Plonky3 WASM... Build: ' + (typeof BUILD_TIMESTAMP !== 'undefined' ? BUILD_TIMESTAMP : 'UNKNOWN'));
+                const bytes = base64ToUint8Array(base64Data);
+
+                // Use the imports from our inlined glue code
+                const imports = getImports();
+                log('[ZK Worker] Imports prepared. Keys: ' + Object.keys(imports).join(', '));
+
+                const { instance, module } = await WebAssembly.instantiate(bytes, imports);
+                finalizeInit(instance, module);
+
+                // No proving key needed with Plonky3 STARKs!
+                log('[ZK Worker] ✅ Plonky3 WASM Loaded (no keys needed!)');
+                document.getElementById('status').innerText = 'Ready - Plonky3';
+
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'wasm_initialized' }));
+
+            } catch (err) {
+                log('[ZK Worker] FATAL: ' + err.message);
+                if (err.stack) log(err.stack);
+                document.getElementById('status').innerText = 'Error: ' + err.message;
+            }
+        }
+
+        async function generateProof(payload) {
+            if (!wasm) throw new Error("WASM not initialized");
+
+            const { alloc, dealloc, generate_face_proof_from_ptrs } = wasm;
+
+            // 1. Prepare Data
+            const storedFloats = new Float64Array(payload.storedEmbedding);
+            const capturedFloats = new Float64Array(payload.capturedEmbedding);
+
+            const storedSize = storedFloats.length * 8;
+            const capturedSize = capturedFloats.length * 8;
+
+            // 2. Alloc
+            const storedPtr = alloc(storedSize);
+            const capturedPtr = alloc(capturedSize);
+
+            try {
+                // 3. Write embeddings to WASM memory
+                // Use Uint8Array to copy bytes directly, avoiding "Byte offset is not aligned" errors
+                // if the allocator returns an address that isn't 8-byte aligned.
+                new Uint8Array(wasm.memory.buffer).set(new Uint8Array(storedFloats.buffer), storedPtr);
+                new Uint8Array(wasm.memory.buffer).set(new Uint8Array(capturedFloats.buffer), capturedPtr);
+
+                log('[ZK Worker] === Diagnostic Info ===');
+
+                // Prepare all parameters
+                const thresholdValue = payload.threshold || 0.6;
+                const nonceValue = BigInt(Date.now());
+
+                // Log parameter values
+                log(`Stored: ptr=${storedPtr}, count=${storedFloats.length}, first value=${storedFloats[0]}`);
+                log(`Captured: ptr=${capturedPtr}, count=${capturedFloats.length}, first value=${capturedFloats[0]}`);
+                log(`Threshold: ${thresholdValue}`);
+                log(`Nonce: ${nonceValue}`);
+
+                // Log parameter TYPES for debugging
+                log('[ZK Worker] === Parameter Types ===');
+                log(`storedPtr type: ${typeof storedPtr}, value: ${storedPtr}`);
+                log(`storedFloats.length type: ${typeof storedFloats.length}, value: ${storedFloats.length}`);
+                log(`capturedPtr type: ${typeof capturedPtr}, value: ${capturedPtr}`);
+                log(`capturedFloats.length type: ${typeof capturedFloats.length}, value: ${capturedFloats.length}`);
+                log(`threshold type: ${typeof thresholdValue}, value: ${thresholdValue}`);
+                log(`nonce type: ${typeof nonceValue}, value: ${nonceValue}`);
+
+                log('[ZK Worker] Calling Rust (Plonky3 - no PK needed)...');
+
+                const start = performance.now();
+
+                let ret;
+                try {
+                    // 4. Call Rust (no PK parameters!)
+                    // Plonky3 STARKs don't need proving keys
+                    // Convert nonce to BigInt to match Rust u64 type
+                    ret = generate_face_proof_from_ptrs(
+                        storedPtr, storedFloats.length,
+                        capturedPtr, capturedFloats.length,
+                        thresholdValue,
+                        nonceValue
+                    );
+                    log('[ZK Worker] Rust call returned successfully');
+                    log(`[ZK Worker] Return value type: ${typeof ret}, isArray: ${Array.isArray(ret)}`);
+                    if (Array.isArray(ret)) {
+                        log(`[ZK Worker] Return array length: ${ret.length}`);
+                        ret.forEach((val, idx) => {
+                            log(`[ZK Worker] ret[${idx}] type: ${typeof val}, value: ${val}`);
+                        });
+                    }
+                } catch (wasmErr) {
+                    log('[ZK Worker] WASM threw during call: ' + wasmErr.message);
+                    log('[ZK Worker] Error stack: ' + (wasmErr.stack || 'No stack available'));
+                    throw wasmErr;
+                }
+
+                var ptr = ret[0];
+                var len = ret[1];
+                var errPtr = ret[2];
+                var isErr = ret[3] !== 0;
+
+                if (isErr) {
+                    // Extract error from externref table
+                    const errorObj = takeFromExternrefTable0(errPtr);
+                    throw new Error(errorObj);
+                }
+
+                // If success, read string from memory
+                const resultJson = getStringFromWasm0(ptr, len);
+
+                // Free the result string memory
+                if (wasm.__wbindgen_free) {
+                    wasm.__wbindgen_free(ptr, len, 1);
+                }
+
+                const end = performance.now();
+                log(`[ZK Worker] ✅ Plonky3 proof generated in ${(end - start).toFixed(2)}ms`);
+
+                return resultJson;
+
+            } finally {
+                dealloc(storedPtr, storedSize);
+                dealloc(capturedPtr, capturedSize);
+            }
+        }
+
+        function handleMessage(event) {
+            try {
+                const msg = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+
+                if (msg.type === 'init_wasm') {
+                    initWasm(msg.payload.wasmBase64);  // Access via payload
+                }
+                else if (msg.type === 'generate_proof') {
+                    generateProof(msg.payload)
+                        .then(result => {
+                            log('[ZK Worker] Raw Result Type: ' + typeof result);
+                            log('[ZK Worker] Raw Result Length: ' + result.length);
+                            log('[ZK Worker] Raw Result Start: ' + result.substring(0, 50));
+                            log('[ZK Worker] Raw Result End: ' + result.substring(result.length - 50));
+
+                            let parsed;
+                            try {
+                                parsed = JSON.parse(result);
+                                log('[ZK Worker] Parse Success. Keys: ' + Object.keys(parsed).join(', '));
+                                if (parsed.proof) log('[ZK Worker] parsed.proof length: ' + parsed.proof.length);
+                            } catch (e) {
+                                log('[ZK Worker] JSON Parse Error: ' + e.message);
+                            }
+
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'proof_result',
+                                data: parsed
+                            }));
+                        })
+                        .catch(err => {
+                            // Handle WASM panics properly
+                            let errorMsg = err.toString();
+                            if (err.message) errorMsg = err.message;
+
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                                type: 'error',
+                                error: errorMsg
+                            }));
+                        });
+                }
+                else if (msg.type === 'verify_proof') {
+                    if (!wasm) throw new Error("WASM not initialized");
+                    try {
+                        const { verify_face_proof, __wbindgen_free } = wasm;
+                        const payload = msg.payload;
+
+                        // LOG THE RAW PAYLOAD GOING TO RUST
+                        log('[ZK Worker] Verify Payload Keys: ' + Object.keys(payload).join(', '));
+                        if(payload.public_inputs) {
+                             log('[ZK Worker] Verify Public Inputs: ' + JSON.stringify(payload.public_inputs));
+                        }
+
+                        const proofJson = JSON.stringify(payload);
+
+                        log('[ZK Worker] Verifying proof... Input JSON len: ' + proofJson.length);
+                        const sPtr = passStringToWasm0(proofJson, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+                        const sLen = WASM_VECTOR_LEN;
+
+                        const ret = verify_face_proof(sPtr, sLen);
+
+                        var ptr = ret[0];
+                        var len = ret[1];
+                        var errPtr = ret[2];
+                        var isErr = ret[3] !== 0;
+
+                        if (isErr) {
+                            const errorObj = takeFromExternrefTable0(errPtr);
+                            throw new Error(errorObj);
+                        }
+
+                        const resultJson = getStringFromWasm0(ptr, len);
+                        log('[ZK Worker] Verify Result raw JSON: ' + resultJson);
+
+                        if (__wbindgen_free) __wbindgen_free(ptr, len, 1);
+
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'verify_result',
+                            data: JSON.parse(resultJson)
+                        }));
+                    } catch (e) {
+                         log('[ZK Worker] Verify Error: ' + e.message);
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'error',
+                            error: e.message
+                        }));
+                    }
+                }
+                else if (msg.type === 'get_proof_hash') {
+                    if (!wasm) throw new Error("WASM not initialized");
+                    try {
+                        const { get_proof_hash, __wbindgen_free } = wasm;
+                        const proofJson = JSON.stringify(msg.payload);
+
+                        const sPtr = passStringToWasm0(proofJson, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+                        const sLen = WASM_VECTOR_LEN;
+
+                        const ret = get_proof_hash(sPtr, sLen);
+
+                        var ptr = ret[0];
+                        var len = ret[1];
+
+                        const hashStr = getStringFromWasm0(ptr, len);
+                        if (__wbindgen_free) __wbindgen_free(ptr, len, 1);
+
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'hash_result',
+                            hash: hashStr
+                        }));
+                    } catch (e) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'error',
+                            error: e.message
+                        }));
+                    }
+                }
+            } catch (e) {
+                log('Worker JSON Error: ' + e.message);
+            }
+        }
+
+        window.addEventListener('message', handleMessage);
+        document.addEventListener('message', handleMessage);
+
+        if (window.ReactNativeWebView) {
+            setTimeout(() => {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
+            }, 100);
+        }
+    </script>
+</body>
+
+</html>
+

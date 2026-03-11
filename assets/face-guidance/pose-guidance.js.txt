@@ -1,0 +1,403 @@
+/* Face Pose Guidance Logic */
+
+const videoElement = document.getElementById('input_video');
+const canvasElement = document.getElementById('output_canvas');
+const canvasCtx = canvasElement.getContext('2d');
+const statusText = document.getElementById('status_text');
+const arrowLeft = document.getElementById('arrow_left');
+const arrowRight = document.getElementById('arrow_right');
+
+// Configuration
+let TARGET_POSE = { yaw: 0, pitch: 0, roll: 0 };
+let REQUIRED_STABLE_DURATION = 2000; // 2 seconds
+let YAW_THRESHOLD = 6; // degrees
+let PITCH_THRESHOLD = 10; // degrees
+let GAZE_THRESHOLD = 0.3; // Deviation from center (0.5)
+
+// State
+let isAnalyzingReference = false;
+let isGuidanceActive = false;
+let stableStartTime = 0;
+let currentStream = null;
+let lastPose = null;
+let guidanceStatus = { text: "", arrowLeft: false, arrowRight: false, isMatch: false };
+let isRenderLoopActive = false;
+
+// Liveness State
+let lastLivenessCheckTime = 0;
+let isRealFace = false;
+let livenessScore = 0;
+const LIVENESS_INTERVAL = 500; // Check every 500ms
+
+// --- POSE CALCULATION ---
+// Now handled by face-logic.js (injected)
+// window.calculatePose and window.calculateGaze should be available
+
+
+// --- FACEMESH SETUP ---
+const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+});
+
+faceMesh.onResults(onResults);
+
+// --- MAIN LOOP ---
+// --- MAIN LOOP (Render + Logic) ---
+function onResults(results) {
+    // Inference completed
+    if (isAnalyzingReference) {
+        sendMessage('log', { message: "onResults received in Analysis Mode" });
+        // For reference analysis, we just use the result directly
+        handleReferenceAnalysis(results);
+        return;
+    }
+
+    if (!isGuidanceActive) return;
+
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        const pose = calculatePose(landmarks);
+        const gaze = calculateGaze(landmarks);
+        const faceWidth = Math.hypot(
+            landmarks[454].x - landmarks[234].x,
+            landmarks[454].y - landmarks[234].y
+        );
+        
+        lastPose = { ...pose, gaze, faceWidth };
+        
+        // --- LIVENESS CHECK ---
+        const now = Date.now();
+            lastLivenessCheckTime = now;
+            checkLiveness(landmarks).then(result => {
+                isRealFace = result.isReal;
+                livenessScore = result.confidence;
+                if (result.error) {
+                    window.livenessLastError = "[" + result.error + "]";
+                } else {
+                    window.livenessLastError = "";
+                }
+            });
+
+        
+        checkGuidance(pose, gaze, faceWidth); // UI State update happen here
+    } else {
+        lastPose = null;
+        isRealFace = false; // Reset if no face
+        statusText.innerText = "No face detected";
+        resetGuidance();
+    }
+}
+
+// --- LIVENESS HELPERS ---
+async function checkLiveness(landmarks) {
+    if (!window.runAntispoofInference) return { isReal: false, confidence: 0, error: 'Inference function missing' };
+    
+    // Check if model is actually ready (custom property or try/catch)
+    // We rely on runAntispoofInference to handle it, but we should avoid spamming logs
+    
+    // 1. Get Bounding Box
+    const bbox = getFaceBoundingBox(landmarks, videoElement.videoWidth, videoElement.videoHeight);
+    
+    // 2. Crop Face
+    const faceCrop = getFaceCrop(bbox);
+    if (!faceCrop) return { isReal: false, confidence: 0 };
+    
+    // 3. Run Inference
+    const result = await window.runAntispoofInference(faceCrop);
+    if (result.error === 'Model not loaded') {
+        // Return neutral/false but don't error out, just wait
+        return { isReal: false, confidence: 0, error: 'Loading model...' };
+    }
+    return result;
+}
+
+function getFaceBoundingBox(landmarks, width, height) {
+    let xMin = width, xMax = 0, yMin = height, yMax = 0;
+    
+    // Check all landmarks to find bounds
+    // Optimization: Just check key points? No, iterate all is fast enough for 468 points (loop)
+    // Actually, just using cheek/chin/forehead is enough approximation
+    // But let's look at limits
+    for(let pt of landmarks) {
+        const x = pt.x * width;
+        const y = pt.y * height;
+        if(x < xMin) xMin = x;
+        if(x > xMax) xMax = x;
+        if(y < yMin) yMin = y;
+        if(y > yMax) yMax = y;
+    }
+    
+    // Add padding/margin for better crop
+    const margin = Math.max(xMax - xMin, yMax - yMin) * 0.2;
+    return {
+        x: Math.max(0, xMin - margin),
+        y: Math.max(0, yMin - margin),
+        w: Math.min(width, (xMax - xMin) + 2*margin),
+        h: Math.min(height, (yMax - yMin) + 2*margin)
+    };
+}
+
+function getFaceCrop(bbox) {
+    // We need to draw video frame to canvas to extract data
+    // We can use a temp canvas or the output canvas if it's synced
+    // Let's use a small temp canvas to avoid messing with render loop
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = bbox.w;
+    tempCanvas.height = bbox.h;
+    const ctx = tempCanvas.getContext('2d');
+    
+    // Draw only the crop region
+    ctx.drawImage(videoElement, bbox.x, bbox.y, bbox.w, bbox.h, 0, 0, bbox.w, bbox.h);
+    
+    return ctx.getImageData(0, 0, bbox.w, bbox.h);
+}
+
+// Render Loop - Runs at screen refresh rate (60fps)
+function renderLoop() {
+    if (!isGuidanceActive) {
+        isRenderLoopActive = false;
+        return;
+    }
+    isRenderLoopActive = true;
+
+    canvasElement.width = videoElement.videoWidth;
+    canvasElement.height = videoElement.videoHeight;
+    
+    // 1. Draw Feed directly from Video Element
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    if (videoElement.readyState === 4) { // HAVE_ENOUGH_DATA
+        canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+    }
+    
+    // 2. Draw Guides based on latest status
+    if (guidanceStatus.arrowLeft) arrowLeft.style.opacity = '1';
+    else arrowLeft.style.opacity = '0';
+    
+    if (guidanceStatus.arrowRight) arrowRight.style.opacity = '1';
+    else arrowRight.style.opacity = '0';
+    
+// Update Debug Info
+    const debugDiv = document.getElementById('debug_info');
+    if (debugDiv && lastPose) {
+        // Gaze Info
+        const gazeX = lastPose.gaze ? lastPose.gaze.x.toFixed(2) : "N/A";
+        // Liveness Info
+        const liveColor = isRealFace ? "lime" : "red";
+        const livenessError = window.livenessLastError || "";
+        
+        debugDiv.innerText = `
+TARGET: Yaw: ${TARGET_POSE.yaw.toFixed(1)}, Pitch: ${TARGET_POSE.pitch.toFixed(1)}
+CURRENT: Yaw: ${lastPose.yaw.toFixed(1)}, Pitch: ${lastPose.pitch.toFixed(1)}
+DIFF: ${(lastPose.yaw - TARGET_POSE.yaw).toFixed(1)}
+Gaze: ${gazeX} (${Math.abs(lastPose.gaze.x - 0.5) > 0.15 ? "AWAY" : "CENTER"})
+Liveness: <span style="color:${liveColor}">${isRealFace ? "REAL" : "SPOOF"}</span> (${livenessScore.toFixed(2)}) ${livenessError}
+Status: ${guidanceStatus.isMatch ? "MATCH" : "ADJUST"}
+Duration: ${stableStartTime > 0 ? (Date.now() - stableStartTime) + 'ms' : '0'}
+        `.trim();
+        debugDiv.innerHTML = debugDiv.innerText.replace(/\n/g, '<br>'); // innerText into HTML for color span
+    } else if (debugDiv) {
+        debugDiv.innerText = "No Face Detected";
+    }
+    
+    canvasCtx.restore();
+    
+    requestAnimationFrame(renderLoop);
+}
+
+// --- ANALYSIS MODE ---
+function handleReferenceAnalysis(results) {
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const pose = calculatePose(results.multiFaceLandmarks[0]);
+        TARGET_POSE = pose;
+        sendMessage('analysis_complete', { pose });
+        console.log("Reference Pose Captured:", pose);
+    } else {
+        sendMessage('analysis_failed', { message: "No face found in reference image" });
+    }
+    isAnalyzingReference = false;
+}
+
+// --- GUIDANCE MODE ---
+function checkGuidance(currentPose, currentGaze, faceWidth) {
+    const yawDiff = currentPose.yaw - TARGET_POSE.yaw;
+    // const pitchDiff = currentPose.pitch - TARGET_POSE.pitch;
+    
+    // YAW GUIDANCE IS PRIORITY
+    // If TARGET is LEFT (-20), and CURRENT is Center (0) -> Diff = 20. Need to turn Left.
+    // So if Diff > Threshold -> Turn Left (reduce diff)? 
+    // Wait. 
+    // Target: -20 (Left)
+    // Current: 0 (Center)
+    // We want Current to go to -20.
+    // 0 is "Too Right" compared to -20.
+    // So if Current > Target -> Turn Left.
+    // If Current < Target -> Turn Right.
+    
+    let isMatch = true;
+    let gazeStatus = "CENTER";
+    
+    // Update Status State
+    let newStatus = { ...guidanceStatus };
+    
+    if (!isRealFace) {
+        // LIVENESS FAILED
+        statusText.innerText = "Possible Spoof Detected";
+        // Optionally show red border or warning
+        newStatus.arrowLeft = false;
+        newStatus.arrowRight = false;
+        isMatch = false;
+    } else if (faceWidth < 0.20) {
+        statusText.innerText = "Move closer";
+        newStatus.arrowLeft = false;
+        newStatus.arrowRight = false;
+        isMatch = false;
+    } else if (faceWidth > 0.45) {
+        statusText.innerText = "Move further back";
+        newStatus.arrowLeft = false;
+        newStatus.arrowRight = false;
+        isMatch = false;
+    } else if (yawDiff > YAW_THRESHOLD) {
+        statusText.innerText = "Turn Face Left";
+        newStatus.arrowLeft = true;
+        newStatus.arrowRight = false;
+        isMatch = false;
+    } else if (yawDiff < -YAW_THRESHOLD) {
+        statusText.innerText = "Turn Face Right";
+        newStatus.arrowLeft = false;
+        newStatus.arrowRight = true;
+        isMatch = false;
+    } else {
+        // Yaw is correct. Check Gaze.
+        // Assuming 0.5 is center. 
+        // 0.4 - 0.6 is safe zone?
+        // Note: Ratio depends on Head Pose too. 
+        // If Head is Straight, Gaze should be ~0.5.
+        // If Head turned Left, Eyes turn Left (relative to face)? No, to look at cam, eyes turn Right relative to face.
+        // But let's assume "Looking at Camera" means Gaze Ratio reflects looking forward relative to head-camera line.
+        // Actually simplest logic: Is Gaze wildly off center?
+        
+        let gazeDiff = Math.abs(currentGaze.x - 0.5);
+        if (gazeDiff > 0.15) { // Threshold for "Looking Away"
+             statusText.innerText = "Look at Camera";
+             gazeStatus = currentGaze.x > 0.5 ? "RIGHT" : "LEFT";
+             isMatch = false;
+        } else {
+             statusText.innerText = "Hold Still...";
+        }
+        
+        newStatus.arrowLeft = false;
+        newStatus.arrowRight = false;
+    }
+    
+    newStatus.isMatch = isMatch;
+    guidanceStatus = newStatus;
+
+    if (isMatch) {
+        if (stableStartTime === 0) {
+            stableStartTime = Date.now();
+        }
+        const duration = Date.now() - stableStartTime;
+        // Feedback
+        const remaining = Math.ceil((REQUIRED_STABLE_DURATION - duration) / 1000);
+        statusText.innerText = `Hold Still... ${remaining}`;
+        
+        if (duration > REQUIRED_STABLE_DURATION) {
+            captureSuccess();
+        }
+    } else {
+        stableStartTime = 0;
+    }
+}
+
+function resetGuidance() {
+    guidanceStatus = { arrowLeft: false, arrowRight: false };
+    stableFramesCallback = 0;
+}
+
+function captureSuccess() {
+    isGuidanceActive = false; // Stop processing
+    statusText.innerText = "Perfect! Capturing...";
+    statusText.style.color = "#4ade80"; // Green
+    
+    // Capture Image
+    const dataUrl = canvasElement.toDataURL('image/jpeg', 0.9);
+    sendMessage('success', { image: dataUrl, pose: TARGET_POSE });
+}
+
+
+// --- COMMUNICATION ---
+function sendMessage(type, data) {
+    if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type, ...data }));
+    } else {
+        console.log(`[RN Msg] ${type}`, data);
+    }
+}
+
+// Manual Pose Setting for Simulation
+window.setTargetPose = function(yaw, pitch, roll=0) {
+    TARGET_POSE = { yaw, pitch, roll };
+    isAnalyzingReference = false;
+    sendMessage('analysis_complete', { pose: TARGET_POSE });
+};
+
+window.startAnalysis = async function(base64Image) {
+    statusText.innerText = "Analyzing Reference...";
+    isAnalyzingReference = true;
+    sendMessage('log', { message: "startAnalysis called with image length: " + base64Image.length });
+    
+    const img = new Image();
+    img.onload = async () => {
+        sendMessage('log', { message: "Reference image loaded, sending to FaceMesh" });
+        try {
+            await faceMesh.send({image: img});
+            sendMessage('log', { message: "FaceMesh send complete" });
+        } catch (e) {
+            sendMessage('error', { message: "FaceMesh send failed: " + e.message });
+        }
+    };
+    img.onerror = (e) => {
+        sendMessage('error', { message: "Reference image load failed" });
+    };
+    img.src = base64Image.startsWith('data:') ? base64Image : `data:image/jpeg;base64,${base64Image}`;
+};
+
+window.startCamera = async function() {
+    isGuidanceActive = true;
+    stableFramesCallback = 0;
+    statusText.innerText = "Align your face";
+    
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: 'user',
+                width: { ideal: 640 },
+                height: { ideal: 480 }
+            }
+        });
+        currentStream = stream;
+        videoElement.srcObject = stream;
+        // Handle Mirroring
+        canvasElement.classList.add('mirror'); 
+        
+        videoElement.onloadedmetadata = () => {
+            videoElement.play();
+            if (!isRenderLoopActive) requestAnimationFrame(renderLoop);
+            processVideoFrame();
+        };
+    } catch (err) {
+        sendMessage('error', { message: "Camera permission denied" });
+    }
+};
+
+async function processVideoFrame() {
+    if (!videoElement.paused && !videoElement.ended && isGuidanceActive) {
+        await faceMesh.send({image: videoElement});
+        requestAnimationFrame(processVideoFrame);
+    }
+}

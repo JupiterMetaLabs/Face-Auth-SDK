@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "FaceZkSdkExample",
+    "slug": "face-zk-sdk-example",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "facezksdkexample",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "io.jmdt.zkface.example",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow camera access to capture face photos for demo verification.",
+        "NSPhotoLibraryUsageDescription": "Allow photo library access to pick images for demo verification."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000000"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "io.jmdt.zkface.example",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
+      ]
+    },
+    "web": {
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
+

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Face Pose Guidance</title>
+
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- MediaPipe -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"
+      crossorigin="anonymous"
+    ></script>
+    <!-- ONNX Runtime Web -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
+
+    <style>
+      .camera-wrapper {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: #000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      #input_video {
+        display: none;
+      }
+
+      #output_canvas {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+      }
+
+      .mirror {
+        transform: scaleX(-1);
+      }
+
+      .overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 40px 20px;
+        z-index: 10;
+      }
+
+      .message-box {
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        padding: 16px 24px;
+        border-radius: 12px;
+        text-align: center;
+        margin: 0 auto;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .guidance-arrow {
+        position: absolute;
+        top: 50%;
+        font-size: 4rem;
+        color: white;
+        text-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        transition: opacity 0.3s;
+        transform: translateY(-50%);
+      }
+
+      .arrow-left {
+        left: 20px;
+        animation: bounce-left 1s infinite;
+      }
+
+      .arrow-right {
+        right: 20px;
+        animation: bounce-right 1s infinite;
+      }
+
+      @keyframes bounce-left {
+        0%,
+        100% {
+          transform: translate(0, -50%);
+        }
+        50% {
+          transform: translate(-10px, -50%);
+        }
+      }
+
+      @keyframes bounce-right {
+        0%,
+        100% {
+          transform: translate(0, -50%);
+        }
+        50% {
+          transform: translate(10px, -50%);
+        }
+      }
+    </style>
+  </head>
+  <body class="bg-black m-0 overflow-hidden">
+    <div class="camera-wrapper">
+      <video id="input_video" playsinline></video>
+      <canvas id="output_canvas"></canvas>
+
+      <div class="overlay">
+        <!-- Top Status -->
+        <div id="status_box" class="message-box">
+          <p id="status_text" class="text-white text-lg font-medium">
+            Initializing...
+          </p>
+        </div>
+
+        <!-- Guidance Elements -->
+        <div id="arrow_left" class="guidance-arrow arrow-left">⬅️</div>
+        <div id="arrow_right" class="guidance-arrow arrow-right">➡️</div>
+
+        <!-- Bottom Status -->
+        <div id="instruction_box" class="message-box hidden">
+          <p id="instruction_text" class="text-slate-300 text-sm">
+            Align your face
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="debug_info"
+      style="
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        color: lime;
+        font-family: monospace;
+        font-size: 12px;
+        padding: 8px;
+        border-radius: 4px;
+        pointer-events: none;
+        z-index: 100;
+        white-space: pre;
+      "
+    ></div>
+
+    <!-- Main Logic Script -->
+    <script src="pose-guidance.js"></script>
+  </body>
+</html>
