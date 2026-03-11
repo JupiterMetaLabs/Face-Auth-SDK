@@ -1,0 +1,43 @@
+{
+  "name": "@jmdt/face-zk-sdk",
+  "version": "0.1.0",
+  "description": "Face Verification and ZK Proof SDK for React Native and Web",
+  "main": "index.ts",
+  "types": "index.ts",
+  "files": [
+    "core",
+    "react-native",
+    "storage",
+    "assets",
+    "index.ts",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "face-recognition",
+    "zero-knowledge-proof",
+    "react-native",
+    "expo",
+    "liveness"
+  ],
+  "author": "Jupiter Meta Labs",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "buffer": "^6.0.3",
+    "jpeg-js": "^0.4.4",
+    "onnxruntime-web": "^1.23.2"
+  },
+  "peerDependencies": {
+    "@react-native-async-storage/async-storage": ">= 1.0.0",
+    "expo": ">= 50.0.0",
+    "expo-asset": ">= 10.0.0",
+    "expo-camera": ">= 15.0.0",
+    "expo-file-system": ">= 17.0.0",
+    "expo-image-manipulator": ">= 12.0.0",
+    "react": ">= 18.0.0",
+    "react-native": ">= 0.73.0",
+    "react-native-webview": ">= 13.0.0"
+  }
+}

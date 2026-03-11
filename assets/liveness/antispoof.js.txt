@@ -1,0 +1,143 @@
+// Anti-Spoofing ONNX Model Integration
+let antispoofSession = null;
+
+// Modified for React Native WebView Injection
+window.loadAntispoofModel = async function(base64Data) {
+    try {
+        console.log('Loading anti-spoof ONNX model from base64...');
+        
+        // Convert base64 to Uint8Array
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        antispoofSession = await ort.InferenceSession.create(bytes.buffer);
+        console.log('✅ Anti-spoof model loaded successfully!');
+        
+        // Signal liveness.js that the model is ready — starts the spoof loop
+        if (window.__onModelLoaded) window.__onModelLoaded();
+        
+        if (window.ReactNativeWebView) {
+             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'modelLoaded' }));
+        }
+        return true;
+    } catch (error) {
+        console.error('Failed to load anti-spoof model:', error);
+        if (window.ReactNativeWebView) {
+             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', message: 'Model load failed: ' + error.message }));
+        }
+        return false;
+    }
+};
+
+window.loadAntispoofModelFromUrl = async function(url) {
+    try {
+        console.log('Loading anti-spoof ONNX model from URL:', url);
+        antispoofSession = await ort.InferenceSession.create(url);
+        console.log('✅ Anti-spoof model loaded successfully from URL!');
+        
+        if (window.ReactNativeWebView) {
+             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'modelLoaded', method: 'url' }));
+        }
+        return true;
+    } catch (error) {
+        console.error('Failed to load anti-spoof model from URL:', error);
+        if (window.ReactNativeWebView) {
+             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'error', message: 'Model load failed (URL): ' + error.message }));
+        }
+        return false;
+    }
+};
+
+/**
+ * Preprocess face crop for MiniFASNet
+ * Input: ImageData of face crop
+ * Output: Float32Array tensor [1, 3, 80, 80]
+ */
+function preprocessFaceForONNX(imageData, targetSize = 128) {
+    // Create temp canvas to resize
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = imageData.width;
+    tempCanvas.height = imageData.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.putImageData(imageData, 0, 0);
+    
+    // Resize to target size
+    const resizeCanvas = document.createElement('canvas');
+    resizeCanvas.width = targetSize;
+    resizeCanvas.height = targetSize;
+    const resizeCtx = resizeCanvas.getContext('2d');
+    
+    resizeCtx.drawImage(tempCanvas, 0, 0, targetSize, targetSize);
+    const resizedData = resizeCtx.getImageData(0, 0, targetSize, targetSize);
+    
+    // Convert to CHW format (channels first) and normalize to [0, 1]
+    const inputTensor = new Float32Array(3 * targetSize * targetSize);
+    
+    for (let i = 0; i < targetSize * targetSize; i++) {
+        const pixelIdx = i * 4;
+        const tensorIdx = i;
+        
+        // R channel
+        inputTensor[tensorIdx] = resizedData.data[pixelIdx] / 255.0;
+        // G channel
+        inputTensor[targetSize * targetSize + tensorIdx] = resizedData.data[pixelIdx + 1] / 255.0;
+        // B channel
+        inputTensor[2 * targetSize * targetSize + tensorIdx] = resizedData.data[pixelIdx + 2] / 255.0;
+    }
+    
+    return inputTensor;
+}
+
+/**
+ * Run anti-spoof inference on face crop
+ * Returns: { isReal: boolean, confidence: number }
+ */
+async function runAntispoofInference(faceCrop) {
+    if (!antispoofSession) {
+        // console.warn('Anti-spoof model not loaded');
+        return { isReal: false, confidence: 0, error: 'Model not loaded' };
+    }
+    
+    try {
+        // Preprocess
+        const inputTensor = preprocessFaceForONNX(faceCrop, 128);
+        
+        // Create ONNX tensor
+        const tensor = new ort.Tensor('float32', inputTensor, [1, 3, 128, 128]);
+        
+        // Run inference
+        const feeds = { input: tensor };  // Check actual input name in model
+        const results = await antispoofSession.run(feeds);
+        
+        // Get output (model outputs [real_score, spoof_score])
+        const output = results[Object.keys(results)[0]].data;
+        
+        const realScore = output[0];
+        const spoofScore = output[1];
+        
+        // Apply softmax
+        const expReal = Math.exp(realScore);
+        const expSpoof = Math.exp(spoofScore);
+        const sum = expReal + expSpoof;
+        
+        const realConfidence = expReal / sum;
+        const spoofConfidence = expSpoof / sum;
+        
+        return {
+            isReal: realConfidence > 0.5,
+            confidence: realConfidence,
+            spoofScore: spoofConfidence,
+            raw: { realScore, spoofScore }
+        };
+    } catch (error) {
+        console.error('Inference error:', error);
+        return { isReal: false, confidence: 0, error: error.message };
+    }
+}
+window.runAntispoofInference = runAntispoofInference;
+
+// Auto-load model on page load
+// loadAntispoofModel(); // Managed by React Native

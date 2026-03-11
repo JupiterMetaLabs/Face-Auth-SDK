@@ -1,0 +1,77 @@
+/* Face Pose Calculation Logic */
+
+// --- POSE CALCULATION ---
+// Distance-invariant yaw/pitch calculation with face dimension normalization
+// This matches the calculation in liveness.js for consistent TARGET and CURRENT pose comparison
+function calculatePose(landmarks) {
+    const nose = landmarks[1];
+    const leftCheek = landmarks[234];
+    const rightCheek = landmarks[454];
+    
+    // Face Width for normalization (makes calculation distance-invariant)
+    const faceWidth = Math.hypot(
+        rightCheek.x - leftCheek.x, 
+        rightCheek.y - leftCheek.y
+    );
+    
+    // Yaw: Rotation around Y axis (Turning Left/Right)
+    const midPointX = (leftCheek.x + rightCheek.x) / 2;
+    // Normalize by face width to get comparable angle regardless of distance
+    // Multiplier 180 is heuristic to match standard degrees
+    const yaw = ((nose.x - midPointX) / faceWidth) * 180;
+
+    // Pitch: Rotation around X axis (Looking Up/Down)
+    const midEyeY = (landmarks[33].y + landmarks[263].y) / 2;
+    const mouthY = (landmarks[13].y + landmarks[14].y) / 2;
+    const midFaceY = (midEyeY + mouthY) / 2;
+    
+    // Face Height for normalization (chin to forehead)
+    const chin = landmarks[152];
+    const forehead = landmarks[10];
+    const faceHeight = Math.hypot(
+        chin.x - forehead.x, 
+        chin.y - forehead.y
+    );
+    
+    const pitch = ((nose.y - midFaceY) / faceHeight) * 180;
+
+    return { yaw, pitch, roll: 0 };
+}
+
+function calculateGaze(landmarks) {
+    if (!landmarks[468] || !landmarks[473]) return { x: 0.5, y: 0.5 }; // Default centered if no iris
+    
+    // Left Eye (User's Left = Right on screen if mirrored, but landmarks are consistent)
+    // Left Eye Inner: 362, Outer: 263, Iris: 473
+    const rightEyeInner = landmarks[362];
+    const rightEyeOuter = landmarks[263];
+    const rightIris = landmarks[473];
+    
+    // Right Eye (User's Right)
+    // Right Eye Inner: 33, Outer: 133, Iris: 468
+    const leftEyeInner = landmarks[33];
+    const leftEyeOuter = landmarks[133];
+    const leftIris = landmarks[468]; // 468 is Left Iris Center
+    
+    // Calculate Horizontal Ratio (0 = Looking Left, 1 = Looking Right, 0.5 = Center)
+    
+    // Left Eye horizontal distance
+    const leftEyeWidth = Math.hypot(leftEyeOuter.x - leftEyeInner.x, leftEyeOuter.y - leftEyeInner.y);
+    const leftIrisDist = Math.hypot(leftIris.x - leftEyeInner.x, leftIris.y - leftEyeInner.y);
+    const leftRatio = leftIrisDist / leftEyeWidth;
+    
+    // Right Eye horizontal distance
+    const rightEyeWidth = Math.hypot(rightEyeOuter.x - rightEyeInner.x, rightEyeOuter.y - rightEyeInner.y);
+    const rightIrisDist = Math.hypot(rightIris.x - rightEyeInner.x, rightIris.y - rightEyeInner.y);
+    const rightRatio = rightIrisDist / rightEyeWidth;
+    
+    // Average ratio
+    const avgRatio = (leftRatio + rightRatio) / 2;
+    return { x: avgRatio, y: 0.5 };
+}
+
+// Export functions if using modules, but here we likely just inject into global scope
+if (typeof window !== 'undefined') {
+    window.calculatePose = calculatePose;
+    window.calculateGaze = calculateGaze;
+}
