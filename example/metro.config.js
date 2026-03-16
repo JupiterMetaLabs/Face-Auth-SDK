@@ -15,6 +15,7 @@ config.resolver.nodeModulesPaths = [
 ];
 
 config.resolver.disableHierarchicalLookup = true;
+config.resolver.unstable_enablePackageExports = true;
 
 // Ensure wasm is treated as an asset, not a source file (mirrors root config)
 if (config.resolver.sourceExts.includes("wasm")) {

@@ -8,6 +8,20 @@
  */
 
 // ============================================================================
+// SDK Initialization
+// ============================================================================
+
+export { FaceZkSdk } from "./FaceZkSdk";
+
+export type {
+  FaceZkConfig,
+  FaceZkModelsConfig,
+  FaceZkFeaturesConfig,
+  FaceZkSetupConfig,
+  ModelSource,
+} from "./config/types";
+
+// ============================================================================
 // Core Types
 // ============================================================================
 
@@ -55,9 +69,11 @@ export type {
   EnrollmentOptions,
   ZkProofOptions,
 
-  // UI-related (minimal, mostly for RN)
+  // UI-related
   VerificationStage,
   UiConfig,
+  FaceZkTheme,
+  FaceZkStrings,
 } from "./core/types";
 
 // ============================================================================

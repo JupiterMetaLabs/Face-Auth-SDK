@@ -8,6 +8,26 @@
  */
 
 // ============================================================================
+// SDK Initialization (re-exported for convenience)
+// ============================================================================
+
+export { FaceZkSdk } from "../FaceZkSdk";
+export { clearModelCache } from "./utils/resolveModelUri";
+
+export type {
+  FaceZkConfig,
+  FaceZkModelsConfig,
+  FaceZkFeaturesConfig,
+  FaceZkSetupConfig,
+  ModelSource,
+} from "../config/types";
+
+export type {
+  FaceZkTheme,
+  FaceZkStrings,
+} from "../core/types";
+
+// ============================================================================
 // Re-export Core Types and Functions
 // ============================================================================
 

@@ -1,9 +1,8 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import type { ReferenceTemplate, SdkConfig } from "../../core/types";
-import { ReferenceEnrollmentFlow } from "../../react-native/ui/ReferenceEnrollmentFlow";
-import type { FaceEmbeddingProvider } from "../../core/enrollment-core";
+import type { ReferenceTemplate, SdkConfig, FaceEmbeddingProvider } from "@jmdt/face-zk-sdk/react-native";
+import { ReferenceEnrollmentFlow } from "@jmdt/face-zk-sdk/react-native";
 
 interface ExampleRuntime {
   sdkConfig: SdkConfig;
@@ -47,6 +46,27 @@ export const ExampleReferenceScreen: React.FC<Props> = ({
           enrollmentOptions={{ persist: true }}
           onComplete={onComplete}
           onCancel={onCancel}
+          uiConfig={{
+            // Theme matches the example app's dark palette.
+            // SDK consumers swap these values for their own brand colors.
+            theme: {
+              colors: {
+                primary: "#22c55e",
+                background: "#020617",
+                surface: "rgba(255,255,255,0.08)",
+                text: "#e5e7eb",
+                textMuted: "#9ca3af",
+                error: "#f97316",
+              },
+              borderRadius: 999,
+            },
+            strings: {
+              enrollmentSuccessTitle: "Reference Captured",
+              enrollmentSuccessSubtitle: "You can now proceed to verification.",
+              cancelButton: "Back",
+              retryButton: "Try Again",
+            },
+          }}
         />
       </View>
     </View>
