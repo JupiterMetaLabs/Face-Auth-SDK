@@ -41,6 +41,7 @@ import type {
 import { createZkProofEngineWebView } from "../adapters/zkProofEngine-webview";
 
 import { getSdkDependencies } from "../dependencies";
+import { resolveUiConfig, interpolate } from "../utils/resolveUiConfig";
 
 /**
  * Props for FaceZkVerificationFlow component
@@ -138,6 +139,10 @@ export const FaceZkVerificationFlow: React.FC<
   const [zkBridge, setZkBridge] = useState<any | null>(null);
   const [liveImageUri, setLiveImageUri] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<VerificationOutcome | null>(null);
+
+  // Resolve theme + strings from uiConfig
+  const ui = resolveUiConfig(uiConfig);
+  const { theme, strings } = ui;
 
   // Get injected dependencies
   const deps = getSdkDependencies();
@@ -336,29 +341,28 @@ export const FaceZkVerificationFlow: React.FC<
 
   const getStageMessage = (): string => {
     switch (stage) {
-      case "IDLE":
-        return "Initializing...";
-      case "REFERENCE_LOADING":
-        return "Loading face recognition models...";
-      case "LIVENESS":
-        return "Follow the on-screen instructions";
-      case "CAPTURING":
-        return "Capturing image...";
-      case "EMBEDDING":
-        return "Processing face...";
-      case "MATCHING":
-        return "Matching face...";
-      case "ZK_PROOF":
-        return "Generating cryptographic proof...";
-      case "DONE":
-        return outcome?.success ? "Verification successful!" : "Verification failed";
-      default:
-        return "";
+      case "IDLE":           return strings.loadingInitializing;
+      case "REFERENCE_LOADING": return strings.loadingModels;
+      case "CAPTURING":     return strings.loadingCapturing;
+      case "EMBEDDING":     return strings.loadingEmbedding;
+      case "MATCHING":      return strings.loadingMatching;
+      case "ZK_PROOF":      return strings.loadingZkProof;
+      default:              return "";
     }
   };
 
+  const isLoadingStage =
+    stage === "IDLE" ||
+    stage === "REFERENCE_LOADING" ||
+    stage === "CAPTURING" ||
+    stage === "EMBEDDING" ||
+    stage === "MATCHING" ||
+    stage === "ZK_PROOF";
+
+  const stageMessage = getStageMessage();
+
   const content = (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar barStyle="light-content" />
 
       {/* Hidden ONNX Runtime WebView for face recognition */}
@@ -380,18 +384,21 @@ export const FaceZkVerificationFlow: React.FC<
           onReady={handleZkBridgeReady}
           onError={(err: string) => {
             console.error("[FaceZkVerificationFlow] ZK bridge error:", err);
-            // Don't fail hard, ZK might be optional
           }}
           wasmData={wasmData}
         />
       )}
 
-      {/* Loading State */}
-      {(stage === "IDLE" || stage === "REFERENCE_LOADING") && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4CAF50" />
-          <Text style={styles.loadingText}>{getStageMessage()}</Text>
-        </View>
+      {/* Loading / Processing States */}
+      {isLoadingStage && (
+        ui.renderLoading ? (
+          ui.renderLoading(stage, stageMessage) as React.ReactElement
+        ) : (
+          <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.text }]}>{stageMessage}</Text>
+          </View>
+        )
       )}
 
       {/* Liveness State */}
@@ -401,55 +408,74 @@ export const FaceZkVerificationFlow: React.FC<
             onSuccess={handleLivenessSuccess}
             onError={handleLivenessError}
             manualTargetPose={referencePose}
-            renderOverlay={renderOverlay}
+            renderOverlay={ui.renderOverlay ?? renderOverlay}
             headless={false}
           />
-          <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
-            <Text style={styles.cancelButtonText}>Cancel</Text>
+          <TouchableOpacity
+            style={[styles.cancelButton, {
+              backgroundColor: theme.colors.surface,
+              borderRadius: theme.borderRadius,
+            }]}
+            onPress={handleCancel}
+          >
+            <Text style={[styles.cancelButtonText, { color: theme.colors.text }]}>
+              {strings.cancelButton}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Processing States */}
-      {(stage === "CAPTURING" ||
-        stage === "EMBEDDING" ||
-        stage === "MATCHING" ||
-        stage === "ZK_PROOF") && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4CAF50" />
-          <Text style={styles.loadingText}>{getStageMessage()}</Text>
-        </View>
+      {/* Done – Success */}
+      {stage === "DONE" && outcome?.success && (
+        ui.renderSuccess ? (
+          ui.renderSuccess(outcome) as React.ReactElement
+        ) : (
+          <View style={[styles.resultContainer, { backgroundColor: theme.colors.background }]}>
+            <Text style={[styles.successIcon, { color: theme.colors.primary }]}>✓</Text>
+            <Text style={[styles.successTitle, { color: theme.colors.text }]}>
+              {strings.verificationSuccessTitle}
+            </Text>
+            <Text style={[styles.successScore, { color: theme.colors.primary }]}>
+              {interpolate(strings.verificationSuccessSubtitle, { score: outcome.score.toFixed(1) })}
+            </Text>
+            {outcome.zkProof && (
+              <Text style={[styles.zkHash, { color: theme.colors.textMuted }]}>
+                ZK Hash: {outcome.zkProof.hash.substring(0, 16)}...
+              </Text>
+            )}
+          </View>
+        )
       )}
 
-      {/* Done State */}
-      {stage === "DONE" && outcome && (
-        <View style={styles.resultContainer}>
-          {outcome.success ? (
-            <>
-              <Text style={styles.successIcon}>✓</Text>
-              <Text style={styles.successTitle}>Verified!</Text>
-              <Text style={styles.successScore}>
-                Match: {outcome.score.toFixed(1)}%
+      {/* Done – Error */}
+      {stage === "DONE" && outcome && !outcome.success && (
+        ui.renderError ? (
+          ui.renderError(
+            outcome.error ?? { code: "SYSTEM_ERROR", message: "Unknown error" },
+            { onRetry: handleRetry, onCancel: handleCancel },
+          ) as React.ReactElement
+        ) : (
+          <View style={[styles.resultContainer, { backgroundColor: theme.colors.background }]}>
+            <Text style={[styles.errorIcon, { color: theme.colors.error }]}>✕</Text>
+            <Text style={[styles.errorTitle, { color: theme.colors.text }]}>
+              {strings.verificationErrorTitle}
+            </Text>
+            <Text style={[styles.errorText, { color: theme.colors.textMuted }]}>
+              {outcome.error?.message || "Unknown error"}
+            </Text>
+            <TouchableOpacity
+              style={[styles.retryButton, {
+                backgroundColor: theme.colors.primary,
+                borderRadius: theme.borderRadius,
+              }]}
+              onPress={handleRetry}
+            >
+              <Text style={[styles.retryButtonText, { color: theme.colors.text }]}>
+                {strings.retryButton}
               </Text>
-              {outcome.zkProof && (
-                <Text style={styles.zkHash}>
-                  ZK Hash: {outcome.zkProof.hash.substring(0, 16)}...
-                </Text>
-              )}
-            </>
-          ) : (
-            <>
-              <Text style={styles.errorIcon}>✕</Text>
-              <Text style={styles.errorTitle}>Verification Failed</Text>
-              <Text style={styles.errorText}>
-                {outcome.error?.message || "Unknown error"}
-              </Text>
-              <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-                <Text style={styles.retryButtonText}>Try Again</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+            </TouchableOpacity>
+          </View>
+        )
       )}
     </SafeAreaView>
   );

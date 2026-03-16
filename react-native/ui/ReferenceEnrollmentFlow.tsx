@@ -36,6 +36,7 @@ import { OnnxRuntimeWebView } from "../components/OnnxRuntimeWebView";
 import { FacePoseGuidanceWebView } from "../components/FacePoseGuidanceWebView";
 import { faceRecognitionService } from "../services/FaceRecognition";
 import { getSdkDependencies } from "../dependencies";
+import { resolveUiConfig } from "../utils/resolveUiConfig";
 
 /**
  * Props for ReferenceEnrollmentFlow component
@@ -112,6 +113,10 @@ export const ReferenceEnrollmentFlow: React.FC<
   const [error, setError] = useState<SdkError | null>(null);
   const [bridgeReady, setBridgeReady] = useState(false);
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
+
+  // Resolve theme + strings from uiConfig
+  const ui = resolveUiConfig(uiConfig);
+  const { theme, strings } = ui;
 
   // Get injected dependencies
   const deps = getSdkDependencies();
@@ -210,7 +215,7 @@ export const ReferenceEnrollmentFlow: React.FC<
   };
 
   const content = (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar barStyle="light-content" />
 
       {/* Hidden ONNX Runtime WebView for face recognition */}
@@ -229,12 +234,18 @@ export const ReferenceEnrollmentFlow: React.FC<
         }}
       />
 
-      {/* Loading State */}
+      {/* Loading States */}
       {(stage === "INIT" || stage === "BRIDGE_LOADING") && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4CAF50" />
-          <Text style={styles.loadingText}>Initializing face recognition...</Text>
-        </View>
+        ui.renderLoading ? (
+          ui.renderLoading(stage, strings.loadingModels) as React.ReactElement
+        ) : (
+          <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.text }]}>
+              {strings.loadingModels}
+            </Text>
+          </View>
+        )
       )}
 
       {/* Capture State */}
@@ -245,46 +256,89 @@ export const ReferenceEnrollmentFlow: React.FC<
             onError={handleCaptureError}
             headless={false}
           />
-          <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
-            <Text style={styles.cancelButtonText}>Cancel</Text>
+          <TouchableOpacity
+            style={[styles.cancelButton, {
+              backgroundColor: theme.colors.surface,
+              borderRadius: theme.borderRadius,
+            }]}
+            onPress={handleCancel}
+          >
+            <Text style={[styles.cancelButtonText, { color: theme.colors.text }]}>
+              {strings.cancelButton}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
 
       {/* Processing State */}
       {stage === "PROCESSING" && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4CAF50" />
-          <Text style={styles.loadingText}>Processing reference image...</Text>
-        </View>
+        ui.renderLoading ? (
+          ui.renderLoading(stage, strings.loadingProcessing) as React.ReactElement
+        ) : (
+          <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.text }]}>
+              {strings.loadingProcessing}
+            </Text>
+          </View>
+        )
       )}
 
       {/* Success State */}
       {stage === "SUCCESS" && (
-        <View style={styles.resultContainer}>
-          <Text style={styles.successIcon}>✓</Text>
-          <Text style={styles.successTitle}>Reference Enrolled</Text>
-          <Text style={styles.successText}>
-            Your reference has been successfully enrolled.
-          </Text>
-        </View>
+        ui.renderSuccess ? (
+          // renderSuccess receives a minimal outcome shape for enrollment
+          ui.renderSuccess({ success: true, score: 100 } as any) as React.ReactElement
+        ) : (
+          <View style={[styles.resultContainer, { backgroundColor: theme.colors.background }]}>
+            <Text style={[styles.successIcon, { color: theme.colors.primary }]}>✓</Text>
+            <Text style={[styles.successTitle, { color: theme.colors.text }]}>
+              {strings.enrollmentSuccessTitle}
+            </Text>
+            <Text style={[styles.successText, { color: theme.colors.textMuted }]}>
+              {strings.enrollmentSuccessSubtitle}
+            </Text>
+          </View>
+        )
       )}
 
       {/* Error State */}
       {stage === "ERROR" && error && (
-        <View style={styles.resultContainer}>
-          <Text style={styles.errorIcon}>✕</Text>
-          <Text style={styles.errorTitle}>Enrollment Failed</Text>
-          <Text style={styles.errorText}>{error.message}</Text>
-          <View style={styles.buttonRow}>
-            <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-              <Text style={styles.retryButtonText}>Try Again</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
+        ui.renderError ? (
+          ui.renderError(error, { onRetry: handleRetry, onCancel: handleCancel }) as React.ReactElement
+        ) : (
+          <View style={[styles.resultContainer, { backgroundColor: theme.colors.background }]}>
+            <Text style={[styles.errorIcon, { color: theme.colors.error }]}>✕</Text>
+            <Text style={[styles.errorTitle, { color: theme.colors.text }]}>
+              {strings.enrollmentErrorTitle}
+            </Text>
+            <Text style={[styles.errorText, { color: theme.colors.textMuted }]}>{error.message}</Text>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.retryButton, {
+                  backgroundColor: theme.colors.primary,
+                  borderRadius: theme.borderRadius,
+                }]}
+                onPress={handleRetry}
+              >
+                <Text style={[styles.retryButtonText, { color: theme.colors.text }]}>
+                  {strings.retryButton}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.cancelButton, {
+                  backgroundColor: theme.colors.surface,
+                  borderRadius: theme.borderRadius,
+                }]}
+                onPress={handleCancel}
+              >
+                <Text style={[styles.cancelButtonText, { color: theme.colors.text }]}>
+                  {strings.cancelButton}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )
       )}
     </SafeAreaView>
   );
