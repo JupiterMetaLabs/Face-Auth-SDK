@@ -5,6 +5,8 @@ import * as jpeg from "jpeg-js";
 import { OnnxRuntimeBridge } from "../components/OnnxRuntimeWebView";
 
 import { estimateUmeyama, Point, warpAffine } from "../utils/faceAlignment";
+import { FaceZkSdk } from "../../FaceZkSdk";
+import { resolveModelUri } from "../utils/resolveModelUri";
 
 type DetectionBox = {
   x1: number;
@@ -61,25 +63,38 @@ export class FaceRecognitionService {
     }
 
     try {
-      console.log("[FaceRecognition] Step 1: Loading detection model asset");
-      // Load Detection Model
-      // @ts-ignore
-      const detAsset = Asset.fromModule(
-        require("../../assets/models/det_500m.onnx"),
-      );
-      await detAsset.downloadAsync();
-      const detUrl = detAsset.localUri || detAsset.uri;
-      console.log("[FaceRecognition] Detection model URL:", detUrl);
+      let detUrl: string;
+      let recUrl: string;
 
-      console.log("[FaceRecognition] Step 2: Loading recognition model asset");
-      // Load Recognition Model
-      // @ts-ignore
-      const recAsset = Asset.fromModule(
-        require("../../assets/models/w600k_mbf.onnx"),
-      );
-      await recAsset.downloadAsync();
-      const recUrl = recAsset.localUri || recAsset.uri;
-      console.log("[FaceRecognition] Recognition model URL:", recUrl);
+      if (FaceZkSdk.isInitialized()) {
+        // ── SDK-configured model sources ───────────────────────────────────
+        // Supports bundled modules, CDN URLs, or pre-downloaded local URIs.
+        const sdkConfig = FaceZkSdk.getConfig();
+
+        console.log("[FaceRecognition] Step 1: Resolving detection model from SDK config");
+        detUrl = await resolveModelUri(sdkConfig.models.detection);
+        console.log("[FaceRecognition] Detection model URI:", detUrl);
+
+        console.log("[FaceRecognition] Step 2: Resolving recognition model from SDK config");
+        recUrl = await resolveModelUri(sdkConfig.models.recognition);
+        console.log("[FaceRecognition] Recognition model URI:", recUrl);
+      } else {
+        // ── Bundled fallback (in-repo / monorepo usage) ────────────────────
+        // Static require() calls resolved by Metro at build time.
+        console.log("[FaceRecognition] Step 1: Loading detection model asset (bundled fallback)");
+        // @ts-ignore
+        const detAsset = Asset.fromModule(require("../../assets/models/det_500m.onnx"));
+        await detAsset.downloadAsync();
+        detUrl = detAsset.localUri || detAsset.uri;
+        console.log("[FaceRecognition] Detection model URL:", detUrl);
+
+        console.log("[FaceRecognition] Step 2: Loading recognition model asset (bundled fallback)");
+        // @ts-ignore
+        const recAsset = Asset.fromModule(require("../../assets/models/w600k_mbf.onnx"));
+        await recAsset.downloadAsync();
+        recUrl = recAsset.localUri || recAsset.uri;
+        console.log("[FaceRecognition] Recognition model URL:", recUrl);
+      }
 
       console.log("[FaceRecognition] Step 3: Reading model files as base64");
       // Read models as base64 to send to WebView
