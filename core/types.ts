@@ -348,7 +348,8 @@ export interface VerificationOptions {
   includeImageData?: {
     base64?: boolean;
     sizeKb?: boolean;
-    qualityScore?: boolean;
+    /** @reserved Not yet implemented — setting this has no effect. */
+    qualityScore?: never;
   };
 }
 
@@ -394,11 +395,130 @@ export type VerificationStage =
 // ============================================================================
 
 /**
- * UI configuration for customizing React Native flows.
- * TODO: Expand with specific theming options (colors, typography, copy overrides, etc.)
+ * Color theme for SDK UI components.
+ * All colors are CSS/React Native color strings (hex, rgb, rgba, named).
+ */
+export interface FaceZkTheme {
+  colors: {
+    /** Primary accent color — buttons, spinners, success icons. Default: #4CAF50 */
+    primary: string;
+    /** Screen / modal background. Default: #000000 */
+    background: string;
+    /** Overlay and surface background (e.g., cancel button). Default: rgba(255,255,255,0.1) */
+    surface: string;
+    /** Primary text color. Default: #ffffff */
+    text: string;
+    /** Secondary / muted text color. Default: #aaaaaa */
+    textMuted: string;
+    /** Error state color — error icons, error titles. Default: #F44336 */
+    error: string;
+  };
+  /** Border radius for buttons and cards. Default: 8 */
+  borderRadius?: number;
+}
+
+/**
+ * Copy overrides for all user-facing strings in SDK flows.
+ * Any string left undefined falls back to the SDK default.
+ */
+export interface FaceZkStrings {
+  // Loading / processing states
+  loadingInitializing?: string;   // default: "Initializing..."
+  loadingModels?: string;         // default: "Loading face recognition models..."
+  loadingCapturing?: string;      // default: "Capturing image..."
+  loadingProcessing?: string;     // default: "Processing reference image..."
+  loadingEmbedding?: string;      // default: "Processing face..."
+  loadingMatching?: string;       // default: "Matching face..."
+  loadingZkProof?: string;        // default: "Generating cryptographic proof..."
+
+  // Success states
+  verificationSuccessTitle?: string;    // default: "Verified!"
+  verificationSuccessSubtitle?: string; // default: "Match: {score}%"
+  enrollmentSuccessTitle?: string;      // default: "Reference Enrolled"
+  enrollmentSuccessSubtitle?: string;   // default: "Your reference has been successfully enrolled."
+
+  // Error states
+  verificationErrorTitle?: string;  // default: "Verification Failed"
+  enrollmentErrorTitle?: string;    // default: "Enrollment Failed"
+
+  // Buttons
+  cancelButton?: string;  // default: "Cancel"
+  retryButton?: string;   // default: "Try Again"
+}
+
+/**
+ * UI configuration for customizing SDK React Native flow components.
+ *
+ * Three layers of customization:
+ *
+ * 1. `theme`   — change colors and border radius (brand colors, dark/light mode)
+ * 2. `strings` — override any piece of copy (localization, custom messaging)
+ * 3. render props — completely replace a state's UI with your own React component
+ *
+ * @example — brand colors only
+ * ```tsx
+ * <FaceZkVerificationFlow
+ *   uiConfig={{
+ *     theme: { colors: { primary: '#6200EE', background: '#1a1a2e' } },
+ *   }}
+ * />
+ * ```
+ *
+ * @example — copy overrides (localization)
+ * ```tsx
+ * <FaceZkVerificationFlow
+ *   uiConfig={{
+ *     strings: {
+ *       loadingModels: 'Cargando modelos...',
+ *       verificationSuccessTitle: '¡Verificado!',
+ *       cancelButton: 'Cancelar',
+ *     },
+ *   }}
+ * />
+ * ```
+ *
+ * @example — fully custom success screen
+ * ```tsx
+ * <FaceZkVerificationFlow
+ *   uiConfig={{
+ *     renderSuccess: (outcome) => (
+ *       <MyBrandedSuccessScreen score={outcome.score} zkHash={outcome.zkProof?.hash} />
+ *     ),
+ *   }}
+ * />
+ * ```
  */
 export interface UiConfig {
-  // Placeholder for future theming options
-  // Colors, typography, copy overrides, custom renderers, etc.
-  [key: string]: unknown;
+  /** Brand color overrides. Only specify what you want to change. */
+  theme?: Partial<FaceZkTheme> & { colors?: Partial<FaceZkTheme["colors"]> };
+
+  /** Copy/string overrides. Only specify what you want to change. */
+  strings?: Partial<FaceZkStrings>;
+
+  /**
+   * Fully replace the loading / processing state UI.
+   * Receives the current stage label and resolved message string.
+   */
+  renderLoading?: (stage: VerificationStage | string, message: string) => React.ReactNode;
+
+  /**
+   * Fully replace the verification success state UI.
+   * Receives the completed VerificationOutcome.
+   */
+  renderSuccess?: (outcome: VerificationOutcome) => React.ReactNode;
+
+  /**
+   * Fully replace the error state UI.
+   * Receives the SdkError and retry/cancel callbacks.
+   */
+  renderError?: (
+    error: SdkError,
+    actions: { onRetry: () => void; onCancel: () => void },
+  ) => React.ReactNode;
+
+  /**
+   * Custom overlay rendered on top of the camera/liveness view.
+   * Receives live WebView state (pose, instructions, etc).
+   */
+  renderOverlay?: (state: any) => React.ReactNode;
 }

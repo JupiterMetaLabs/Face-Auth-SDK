@@ -1,7 +1,12 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@jmdt/face-zk-sdk": ["../index.ts"],
+      "@jmdt/face-zk-sdk/react-native": ["../react-native/index.ts"]
+    }
   },
   "include": [
     "app/**/*.ts",

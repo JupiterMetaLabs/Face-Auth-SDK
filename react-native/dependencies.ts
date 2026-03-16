@@ -164,3 +164,26 @@ export function clearSdkDependencies(): void {
   dependencies = null;
   console.log("[SDK] Dependencies cleared");
 }
+
+/**
+ * Returns the SDK's built-in default dependencies.
+ * Pass the result to `initializeSdkDependencies()` to make the initialization
+ * explicit in your app (recommended), while still using the SDK's own components.
+ *
+ * @example
+ * ```ts
+ * initializeSdkDependencies(getDefaultSdkDependencies());
+ * ```
+ */
+export function getDefaultSdkDependencies(): SdkDependencies {
+  return {
+    OnnxRuntimeWebView,
+    OnnxRuntimeBridge,
+    ZkProofWebView,
+    ZkProofBridge,
+    ZkFaceAuth,
+    FacePoseGuidanceWebView,
+    faceRecognitionService,
+    useWasmLoader,
+  };
+}

@@ -1,9 +1,9 @@
-import type { SdkConfig, VerificationOptions, SdkLogger } from "../../../core/types";
-import { defaultStorageAdapter } from "../../../storage/defaultStorageAdapter";
+import type { SdkConfig, VerificationOptions, SdkLogger } from "@jmdt/face-zk-sdk/react-native";
 import {
+  defaultStorageAdapter,
   createFaceEmbeddingProvider,
   defaultFaceEmbeddingProvider,
-} from "../../../react-native/adapters/faceEmbeddingProvider";
+} from "@jmdt/face-zk-sdk/react-native";
 
 type LogEvent = Parameters<NonNullable<SdkLogger["onLog"]>>[0];
 
@@ -27,7 +27,6 @@ export const exampleSdkConfig: SdkConfig = {
   // host app wires the ZkProofEngine via sdk/core/verification-core helpers.
   // For simplicity, we leave zk undefined here; the SDK UI flow will still
   // render and can operate in verify-only mode.
-  zk: undefined,
   storage: defaultStorageAdapter,
   onLog(event: LogEvent) {
     const prefix = "[FaceZkSdkExample]";
@@ -58,7 +57,6 @@ export function getExampleVerificationOptions(isTestMode: boolean): Verification
     includeImageData: {
       base64: false,
       sizeKb: false,
-      qualityScore: false,
     },
   };
 

@@ -2,6 +2,8 @@ import { Asset } from 'expo-asset';
 // @ts-ignore - Usage of legacy API as per Expo SDK 54 migration guide
 import * as FileSystem from 'expo-file-system/legacy';
 import { useEffect, useState } from 'react';
+import { FaceZkSdk } from '../../FaceZkSdk';
+import { resolveModelUri } from '../utils/resolveModelUri';
 
 /**
  * Hook for loading Plonky3 WASM resources
@@ -27,22 +29,51 @@ export function useWasmLoader() {
                 setError(null);
                 console.log('[useWasmLoader] Starting Plonky3 WASM load...');
 
-                // Load WASM binary
-                const wasmAsset = Asset.fromModule(require('../../assets/wasm/zk_face_wasm_bg.wasm'));
-                await wasmAsset.downloadAsync();
-                console.log('[useWasmLoader] WASM asset downloaded:', wasmAsset.localUri);
+                let wasmLocalUri: string;
+                let workerLocalUri: string;
 
-                // Load worker HTML
-                const workerAsset = Asset.fromModule(require('../../assets/zk-worker.html'));
-                await workerAsset.downloadAsync();
-                console.log('[useWasmLoader] Worker HTML downloaded:', workerAsset.localUri);
+                if (FaceZkSdk.isInitialized()) {
+                    // ── SDK-configured WASM sources ────────────────────────
+                    const sdkConfig = FaceZkSdk.getConfig();
 
-                if (!wasmAsset.localUri || !workerAsset.localUri) {
-                    throw new Error('Failed to download WASM assets');
+                    if (sdkConfig.models.wasm) {
+                        wasmLocalUri = await resolveModelUri(sdkConfig.models.wasm);
+                    } else {
+                        // No wasm override – use bundled fallback
+                        const wasmAsset = Asset.fromModule(require('../../assets/wasm/zk_face_wasm_bg.wasm'));
+                        await wasmAsset.downloadAsync();
+                        if (!wasmAsset.localUri) throw new Error('Failed to download bundled WASM asset');
+                        wasmLocalUri = wasmAsset.localUri;
+                    }
+
+                    if (sdkConfig.models.zkWorkerHtml) {
+                        workerLocalUri = await resolveModelUri(sdkConfig.models.zkWorkerHtml);
+                    } else {
+                        const workerAsset = Asset.fromModule(require('../../assets/zk-worker.html'));
+                        await workerAsset.downloadAsync();
+                        if (!workerAsset.localUri) throw new Error('Failed to download bundled worker HTML asset');
+                        workerLocalUri = workerAsset.localUri;
+                    }
+                } else {
+                    // ── Bundled fallback (in-repo / monorepo usage) ────────
+                    const wasmAsset = Asset.fromModule(require('../../assets/wasm/zk_face_wasm_bg.wasm'));
+                    await wasmAsset.downloadAsync();
+                    console.log('[useWasmLoader] WASM asset downloaded:', wasmAsset.localUri);
+
+                    const workerAsset = Asset.fromModule(require('../../assets/zk-worker.html'));
+                    await workerAsset.downloadAsync();
+                    console.log('[useWasmLoader] Worker HTML downloaded:', workerAsset.localUri);
+
+                    if (!wasmAsset.localUri || !workerAsset.localUri) {
+                        throw new Error('Failed to download WASM assets');
+                    }
+
+                    wasmLocalUri = wasmAsset.localUri;
+                    workerLocalUri = workerAsset.localUri;
                 }
 
                 // Read WASM as base64 and clean it
-                let wasmBase64 = await FileSystem.readAsStringAsync(wasmAsset.localUri, {
+                let wasmBase64 = await FileSystem.readAsStringAsync(wasmLocalUri, {
                     encoding: 'base64'
                 });
                 // Remove any whitespace/newlines that might cause atob failure
@@ -50,7 +81,7 @@ export function useWasmLoader() {
                 console.log('[useWasmLoader] WASM base64 size:', wasmBase64.length);
 
                 // Read worker HTML
-                const workerHtml = await FileSystem.readAsStringAsync(workerAsset.localUri, {
+                const workerHtml = await FileSystem.readAsStringAsync(workerLocalUri, {
                     encoding: 'utf8'
                 });
                 console.log('[useWasmLoader] Worker HTML size:', workerHtml.length);

@@ -5,12 +5,9 @@ import type {
   ReferenceTemplate,
   SdkConfig,
   VerificationOutcome,
-} from "../../core/types";
-import type {
   FaceEmbeddingProvider,
-  LivenessProvider,
-} from "../../core/verification-core";
-import { FaceZkVerificationFlow } from "../../react-native/ui/FaceZkVerificationFlow";
+} from "@jmdt/face-zk-sdk/react-native";
+import { FaceZkVerificationFlow } from "@jmdt/face-zk-sdk/react-native";
 import { getExampleVerificationOptions } from "../src/sdkRuntime/faceZkSdkExample";
 
 interface ExampleRuntime {
@@ -79,13 +76,30 @@ export const ExampleVerifyScreen: React.FC<Props> = ({
             reference={reference}
             mode="verify-with-proof"
             embeddingProvider={embeddingProvider}
-            livenessProvider={
-              undefined as unknown as LivenessProvider | undefined
-            }
+            livenessProvider={undefined}
             verificationOptions={verificationOptions}
             referencePose={reference.pose}
             onComplete={handleComplete}
             onCancel={onCancel}
+            uiConfig={{
+              theme: {
+                colors: {
+                  primary: "#22c55e",
+                  background: "#020617",
+                  surface: "rgba(255,255,255,0.08)",
+                  text: "#e5e7eb",
+                  textMuted: "#9ca3af",
+                  error: "#f97316",
+                },
+                borderRadius: 999,
+              },
+              strings: {
+                verificationSuccessTitle: "Identity Verified",
+                verificationSuccessSubtitle: "Match score: {score}%",
+                cancelButton: "Back",
+                retryButton: "Try Again",
+              },
+            }}
           />
         ) : (
           <View style={styles.summaryContainer}>

@@ -4,15 +4,38 @@
   "description": "Face Verification and ZK Proof SDK for React Native and Web",
   "main": "index.ts",
   "types": "index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "default": "./index.ts"
+    },
+    "./react-native": {
+      "types": "./react-native/index.ts",
+      "default": "./react-native/index.ts"
+    }
+  },
+  "bin": {
+    "face-zk": "./cli/setup.js"
+  },
   "files": [
     "core",
     "react-native",
     "storage",
-    "assets",
+    "config",
+    "cli",
+    "FaceZkSdk.ts",
     "index.ts",
-    "README.md"
+    "face-zk.config.example.js",
+    "README.md",
+    "assets/liveness",
+    "assets/face-guidance",
+    "assets/mediapipe",
+    "assets/wasm",
+    "assets/zk-worker.html",
+    "assets/README.md"
   ],
   "scripts": {
+    "setup": "node ./cli/setup.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -28,6 +51,10 @@
     "buffer": "^6.0.3",
     "jpeg-js": "^0.4.4",
     "onnxruntime-web": "^1.23.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "typescript": "~5.9.2"
   },
   "peerDependencies": {
     "@react-native-async-storage/async-storage": ">= 1.0.0",

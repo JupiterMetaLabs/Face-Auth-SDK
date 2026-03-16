@@ -19,7 +19,9 @@
   },
   "include": [
     "index.ts",
+    "FaceZkSdk.ts",
     "core/**/*.ts",
+    "config/**/*.ts",
     "react-native/**/*.ts",
     "react-native/**/*.tsx",
     "storage/**/*.ts"
