@@ -9,7 +9,7 @@
  * - Optional persistence via storage adapter
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -32,11 +32,9 @@ import type {
 import { createReferenceFromImage } from "../../core/enrollment-core";
 import type { FaceEmbeddingProvider } from "../../core/enrollment-core";
 
-import { OnnxRuntimeWebView } from "../components/OnnxRuntimeWebView";
-import { FacePoseGuidanceWebView } from "../components/FacePoseGuidanceWebView";
-import { faceRecognitionService } from "../services/FaceRecognition";
 import { getSdkDependencies } from "../dependencies";
 import { resolveUiConfig } from "../utils/resolveUiConfig";
+import { FaceZkSdk } from "../../FaceZkSdk";
 
 /**
  * Props for ReferenceEnrollmentFlow component
@@ -112,7 +110,6 @@ export const ReferenceEnrollmentFlow: React.FC<
   const [stage, setStage] = useState<EnrollmentStage>("INIT");
   const [error, setError] = useState<SdkError | null>(null);
   const [bridgeReady, setBridgeReady] = useState(false);
-  const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
 
   // Resolve theme + strings from uiConfig
   const ui = resolveUiConfig(uiConfig);
@@ -121,6 +118,17 @@ export const ReferenceEnrollmentFlow: React.FC<
   // Get injected dependencies
   const deps = getSdkDependencies();
   const { OnnxRuntimeWebView, FacePoseGuidanceWebView, faceRecognitionService } = deps;
+
+  // Guard: SDK must be initialized before rendering (after all hooks)
+  if (!FaceZkSdk.isInitialized()) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
+        <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
+          FaceZkSdk is not initialized.{"\n"}Call FaceZkSdk.init() before rendering this component.
+        </Text>
+      </View>
+    );
+  }
 
   // Initialize bridge for face recognition
   const handleBridgeReady = (bridge: any) => {
@@ -154,9 +162,8 @@ export const ReferenceEnrollmentFlow: React.FC<
   }, [bridgeReady, faceRecognitionService, onError]);
 
   // Handle image capture from pose guidance
-  const handleCaptureSuccess = async (imageUri: string, metadata?: any) => {
+  const handleCaptureSuccess = async (imageUri: string) => {
     console.log("[ReferenceEnrollmentFlow] Image captured:", imageUri);
-    setCapturedImageUri(imageUri);
     setStage("PROCESSING");
 
     try {
@@ -206,7 +213,6 @@ export const ReferenceEnrollmentFlow: React.FC<
 
   const handleRetry = () => {
     setError(null);
-    setCapturedImageUri(null);
     setStage("CAPTURING");
   };
 

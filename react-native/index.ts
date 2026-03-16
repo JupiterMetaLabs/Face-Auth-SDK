@@ -11,8 +11,20 @@
 // SDK Initialization (re-exported for convenience)
 // ============================================================================
 
+import { FaceZkSdk as _FaceZkSdk } from "../FaceZkSdk";
+import { clearModelCache as _clearModelCache } from "./utils/resolveModelUri";
+
 export { FaceZkSdk } from "../FaceZkSdk";
 export { clearModelCache } from "./utils/resolveModelUri";
+
+/**
+ * Reset the SDK and clear any cached model files.
+ * Use this instead of `FaceZkSdk.reset()` in React Native apps.
+ */
+export async function resetSdk(): Promise<void> {
+  _FaceZkSdk.reset();
+  await _clearModelCache();
+}
 
 export type {
   FaceZkConfig,
@@ -143,3 +155,27 @@ export {
   getAllProofIds,
   clearAllStorage,
 } from "../storage/defaultStorageAdapter";
+
+// ============================================================================
+// Headless Core Functions (re-exported for React Native consumers)
+// ============================================================================
+
+export {
+  createReferenceFromImage,
+} from "../core/enrollment-core";
+
+export {
+  verifyOnly,
+  verifyWithProof,
+} from "../core/verification-core";
+
+export {
+  generateZkProofOnly,
+  generateAndPersistZkProof,
+} from "../core/zk-core";
+
+// ============================================================================
+// Default Dependencies
+// ============================================================================
+
+export { getDefaultSdkDependencies } from "./dependencies";

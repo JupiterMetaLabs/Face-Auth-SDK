@@ -10,7 +10,7 @@
  * - Optional ZK proof generation and verification
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -42,6 +42,7 @@ import { createZkProofEngineWebView } from "../adapters/zkProofEngine-webview";
 
 import { getSdkDependencies } from "../dependencies";
 import { resolveUiConfig, interpolate } from "../utils/resolveUiConfig";
+import { FaceZkSdk } from "../../FaceZkSdk";
 
 /**
  * Props for FaceZkVerificationFlow component
@@ -137,7 +138,6 @@ export const FaceZkVerificationFlow: React.FC<
   const [stage, setStage] = useState<VerificationStage>("IDLE");
   const [bridgeReady, setBridgeReady] = useState(false);
   const [zkBridge, setZkBridge] = useState<any | null>(null);
-  const [liveImageUri, setLiveImageUri] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<VerificationOutcome | null>(null);
 
   // Resolve theme + strings from uiConfig
@@ -155,7 +155,18 @@ export const FaceZkVerificationFlow: React.FC<
   } = deps;
 
   // Load WASM for ZK proofs
-  const { wasmData, error: wasmError, isLoading: wasmLoading } = useWasmLoader();
+  const { wasmData } = useWasmLoader();
+
+  // Guard: after all hooks — SDK must be initialized
+  if (!FaceZkSdk.isInitialized()) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
+        <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
+          FaceZkSdk is not initialized.{"\n"}Call FaceZkSdk.init() before rendering this component.
+        </Text>
+      </View>
+    );
+  }
 
   // Notify parent of stage changes
   useEffect(() => {
@@ -197,7 +208,7 @@ export const FaceZkVerificationFlow: React.FC<
   }, [bridgeReady, faceRecognitionService]);
 
   // Handle liveness success (image captured)
-  const handleLivenessSuccess = async (imageUri: string, metadata?: any) => {
+  const handleLivenessSuccess = async (imageUri: string) => {
     console.log("[FaceZkVerificationFlow] Liveness passed, image captured:", imageUri.substring(0, 80) + "...");
     setStage("CAPTURING");
 
@@ -215,8 +226,6 @@ export const FaceZkVerificationFlow: React.FC<
         fileUri = tempPath;
         console.log("[FaceZkVerificationFlow] Saved liveness image to:", fileUri);
       }
-
-      setLiveImageUri(fileUri);
 
       // Brief delay for UI feedback
       setTimeout(() => runVerification(fileUri), 500);
@@ -331,7 +340,6 @@ export const FaceZkVerificationFlow: React.FC<
 
   const handleRetry = () => {
     setStage("LIVENESS");
-    setLiveImageUri(null);
     setOutcome(null);
   };
 

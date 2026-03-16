@@ -27,7 +27,6 @@ export const exampleSdkConfig: SdkConfig = {
   // host app wires the ZkProofEngine via sdk/core/verification-core helpers.
   // For simplicity, we leave zk undefined here; the SDK UI flow will still
   // render and can operate in verify-only mode.
-  zk: undefined,
   storage: defaultStorageAdapter,
   onLog(event: LogEvent) {
     const prefix = "[FaceZkSdkExample]";
@@ -58,7 +57,6 @@ export function getExampleVerificationOptions(isTestMode: boolean): Verification
     includeImageData: {
       base64: false,
       sizeKb: false,
-      qualityScore: false,
     },
   };
 

@@ -348,7 +348,8 @@ export interface VerificationOptions {
   includeImageData?: {
     base64?: boolean;
     sizeKb?: boolean;
-    qualityScore?: boolean;
+    /** @reserved Not yet implemented — setting this has no effect. */
+    qualityScore?: never;
   };
 }
 

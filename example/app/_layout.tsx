@@ -4,6 +4,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Slot } from "expo-router";
 
 import { FaceZkSdk } from "@jmdt/face-zk-sdk";
+import {
+  initializeSdkDependencies,
+  getDefaultSdkDependencies,
+} from "@jmdt/face-zk-sdk/react-native";
 
 /**
  * Root layout for the SDK example flow.
@@ -17,6 +21,9 @@ export default function RootLayout() {
   const [sdkError, setSdkError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Wire SDK dependencies before init so UI flows have what they need
+    initializeSdkDependencies(getDefaultSdkDependencies());
+
     FaceZkSdk.init({
       models: {
         // Bundled assets: the example ships models alongside the SDK source.

@@ -6,7 +6,6 @@ import type {
   SdkConfig,
   VerificationOutcome,
   FaceEmbeddingProvider,
-  LivenessProvider,
 } from "@jmdt/face-zk-sdk/react-native";
 import { FaceZkVerificationFlow } from "@jmdt/face-zk-sdk/react-native";
 import { getExampleVerificationOptions } from "../src/sdkRuntime/faceZkSdkExample";
@@ -77,9 +76,7 @@ export const ExampleVerifyScreen: React.FC<Props> = ({
             reference={reference}
             mode="verify-with-proof"
             embeddingProvider={embeddingProvider}
-            livenessProvider={
-              undefined as unknown as LivenessProvider | undefined
-            }
+            livenessProvider={undefined}
             verificationOptions={verificationOptions}
             referencePose={reference.pose}
             onComplete={handleComplete}

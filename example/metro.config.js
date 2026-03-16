@@ -15,7 +15,12 @@ config.resolver.nodeModulesPaths = [
 ];
 
 config.resolver.disableHierarchicalLookup = true;
-config.resolver.unstable_enablePackageExports = true;
+
+// Resolve symlinks to real paths so the same physical file is never
+// registered as two separate modules (e.g. @jmdt/face-zk-sdk symlink vs
+// the real workspace path). Without this, singleton state (FaceZkSdk._state)
+// ends up split across two module instances and the app silently breaks.
+config.resolver.unstable_enableSymlinks = true;
 
 // Ensure wasm is treated as an asset, not a source file (mirrors root config)
 if (config.resolver.sourceExts.includes("wasm")) {
