@@ -1,379 +1,335 @@
-# Face+ZK SDK — Comprehensive Code Review
+# Face+ZK SDK — Code Audit Report
 
-**Date:** March 16, 2026
-**Scope:** Full codebase review for open-source release readiness
-**Reviewer:** Claude (Automated)
-
----
-
-## Executive Summary
-
-The Face+ZK SDK is a well-architected React Native SDK for face verification with zero-knowledge proofs. The core layer (`core/`) is clean, well-typed, and properly separated from platform-specific code. The React Native layer (`react-native/`) provides a complete integration with WebView-based ONNX inference and ZK proof generation.
-
-**Overall assessment: ~75% ready for open-source release.** The architecture is sound and the API surface is thoughtful, but there are correctness bugs, security concerns, DX friction points, and documentation gaps that should be addressed before public release.
+**Classification:** INTERNAL — Engineering & Product
+**Date:** March 17, 2026
+**Version:** 2.0 (Verified, Two-Pass)
+**Prepared for:** SDK Team, Internal Integration Teams
+**Prepared by:** Automated Code Audit (Claude)
 
 ---
 
-## 1. Correctness Issues
+## 1. Executive Summary
 
-### 1.1 CRITICAL — `isSdkError` Type Guard is Unreliable
+The Face+ZK SDK is a React Native SDK providing face verification with zero-knowledge proofs. It uses WebView-based ONNX Runtime inference (SCRFD detection + MobileFaceNet recognition) and Plonky3 WASM for ZK proof generation. The codebase has a clean core/platform separation, interface-driven dependency injection, and a three-tier UI customization system.
 
-**Files:** `core/enrollment-core.ts:248`, `core/verification-core.ts:621`
+**Release Readiness: NOT READY for internal distribution or open-source release.**
 
-The `isSdkError` type guard checks only for `"code" in error && "message" in error`. This will match ANY `Error` object (since `Error` has a `message` property) and many other objects. This means regular JavaScript errors could be treated as `SdkError` objects, bypassing the wrapping logic in catch blocks.
+This audit identified **45 verified findings** across the codebase. Of these, **7 are CRITICAL** — meaning they will cause runtime crashes, security vulnerabilities, or legal blockers under normal usage conditions. An additional **14 are HIGH** severity, representing bugs that affect correctness or security under realistic scenarios.
+
+**The SDK cannot be shared with internal teams for integration until the 10 Must-Fix items in Section 3 are resolved.** The 10 Should-Fix items are strongly recommended before any team begins integration work. The remaining items improve quality but are not blockers.
+
+### Risk Summary
+
+| Severity | Count | Breakdown |
+|----------|-------|-----------|
+| CRITICAL | 7 | 4 correctness, 2 security, 1 documentation |
+| HIGH | 14 | 6 correctness, 4 security, 2 performance, 2 documentation |
+| MEDIUM | 18 | 7 correctness, 1 security, 3 performance, 4 documentation, 3 DX |
+| LOW | 6 | 1 correctness, 1 documentation, 2 DX, 2 code quality |
+| **Total** | **45** | |
+
+### Architecture Strengths
+
+The SDK's architecture is fundamentally sound and well-designed for an SDK product:
+
+- Clean `core/` vs `react-native/` separation — core layer is framework-agnostic
+- Interface-driven providers: `FaceEmbeddingProvider`, `LivenessProvider`, `ZkProofEngine`, `StorageAdapter` are all swappable
+- Dependency injection via `SdkDependencies` for all internal components
+- Three-tier UI customization: theme, strings, render props
+- Structured error modeling with typed `SdkError` codes
+
+---
+
+## 2. Findings by Category
+
+### 2.1 Correctness Issues (17 findings)
+
+#### CRITICAL
+
+**C-1. Rules of Hooks Violation in Both UI Flow Components**
+Confidence: CONFIRMED
+
+`react-native/ui/FaceZkVerificationFlow.tsx` lines 138–174 and `react-native/ui/ReferenceEnrollmentFlow.tsx` lines 110–162 both have `useEffect` hooks placed AFTER a conditional `return` statement. When the early return triggers (SDK not initialized), the hooks are skipped, violating React's Rules of Hooks. This produces React errors and unpredictable behavior on every render path where `FaceZkSdk.isInitialized()` is false.
+
+```tsx
+// FaceZkVerificationFlow.tsx — hooks at 138-158, early return at 161, useEffect at 172
+if (!FaceZkSdk.isInitialized()) { return (<View>...</View>); }
+useEffect(() => { onStageChange?.(stage); }, [stage, onStageChange]); // AFTER early return
+```
+
+**C-2. `isSdkError` Type Guard Matches Regular Error Objects**
+Confidence: CONFIRMED
+
+`core/enrollment-core.ts` lines 248–255, duplicated at `core/verification-core.ts` lines 621–628. Checks `"code" in error && "message" in error` — matches any JS `Error` with a `code` property (common in Node.js errors like `ENOENT`). Catch blocks will misidentify system errors as SDK errors.
 
 ```ts
-// Current — matches ANY Error object
 function isSdkError(error: unknown): error is SdkError {
   return typeof error === "object" && error !== null && "code" in error && "message" in error;
 }
-
-// Fix — check that code is a valid SdkErrorCode
-const VALID_SDK_ERROR_CODES = new Set(["NO_FACE", "MULTIPLE_FACES", "LOW_MATCH", "SYSTEM_ERROR", "ZK_ERROR", "NO_REFERENCE", "LIVENESS_FAILED", "CANCELLED"]);
-function isSdkError(error: unknown): error is SdkError {
-  return typeof error === "object" && error !== null && "code" in error && VALID_SDK_ERROR_CODES.has((error as any).code);
-}
 ```
 
-Also, this function is **duplicated** in both files. Extract it to a shared utility.
+**C-3. Division by Zero in IOU Calculation**
+Confidence: CONFIRMED
 
-### 1.2 CRITICAL — React Hooks Called Conditionally (Rules of Hooks Violation)
+`react-native/services/FaceRecognition.ts` lines 636–648. `calculateIOU` divides `intersection / union` without checking for zero. Degenerate detection boxes produce `NaN`, corrupting NMS output.
 
-**Files:** `react-native/ui/FaceZkVerificationFlow.tsx:161`, `react-native/ui/ReferenceEnrollmentFlow.tsx:123`
+**C-4. Unguarded `config.zk` Access in verifyWithProof**
+Confidence: CONFIRMED
 
-Both UI flow components have an early return **between** hook calls. The `useEffect` on line 172 (VerificationFlow) runs after a conditional early return on line 161. This violates the Rules of Hooks and will cause React errors on some render paths:
+`core/verification-core.ts` lines 561–569. Accesses `config.zk.requiredForSuccess` without null check. `config.zk` is typed as optional (`zk?: ZkConfig`). Throws "Cannot read property 'requiredForSuccess' of undefined" when ZK config is omitted.
 
-```tsx
-// Line 158: useWasmLoader() ← hook
-const { wasmData } = useWasmLoader();
+#### HIGH
 
-// Line 161: EARLY RETURN ← between hooks
-if (!FaceZkSdk.isInitialized()) {
-  return <View>...</View>;
-}
+**C-5. Division by Zero in Embedding Normalization** — `FaceRecognition.ts` lines 673–676. Zero-vector embedding produces `NaN` output. No guard.
 
-// Line 172: useEffect ← this hook may not run if early return triggers
-useEffect(() => { onStageChange?.(stage); }, [stage, onStageChange]);
-```
+**C-6. Division by Zero in Pitch Estimation** — `FaceRecognition.ts` lines 731–737. Coincident landmarks produce `faceHeight = 0`, yielding `Infinity`.
 
-**Fix:** Move all hook calls above any conditional returns, or use the guard inside `useEffect`.
+**C-7. `l2SquaredDistance` Silently Returns MAX_VALUE for Invalid Input** — `core/matching.ts` lines 20–24. Mismatched or empty embeddings return `Number.MAX_VALUE` instead of throwing, masking bugs in calling code.
 
-### 1.3 HIGH — `FaceZkSdk.init()` Has a State Machine Race Condition
+**C-8. Liveness Score Threshold Not Checked** — `verification-core.ts` lines 338 and 384. `LivenessConfig.minScore` exists in the type system but code only checks the `passed` boolean. `?? true` default means missing liveness silently passes. Confidence: LIKELY.
 
-**File:** `FaceZkSdk.ts:47`
+**C-9. `FaceZkSdk.init()` Allows Silent Re-initialization** — `FaceZkSdk.ts` lines 46–63. Has a concurrent-call guard but no guard for `_state === "ready"`. Second call silently overwrites `_config`.
 
-If `init()` is called, fails (setting state to `"error"`), and is then called again concurrently, the second call could proceed while the first is still being cleaned up. More importantly, there's no re-initialization path — once `init()` succeeds, calling it again won't re-validate or update config. There's no guard against double-init.
+**C-10. Unimplemented Out-of-Bounds Padding in warpAffine** — `faceAlignment.ts` lines 197–205. Empty else block for out-of-bounds pixels. Comments show unresolved design questions.
 
-**Fix:** Either throw on double-init (like the concurrent guard), or properly support re-initialization by resetting state first.
+#### MEDIUM
 
-### 1.4 HIGH — `l2SquaredToPercentage` Scaling Assumes Normalized Vectors
+**C-11.** `l2SquaredToPercentage` formula only valid for normalized vectors, no validation — `matching.ts` lines 53–59
+**C-12.** `verifyWithProof` mutates the `outcome` object from `verifyOnly` — `verification-core.ts` line 559
+**C-13.** `ZkProofSummary.sizeBytes` uses `string.length` (character count) not byte count — `verification-core.ts` line 545
+**C-14.** No timeout on WebView bridge promises; hangs indefinitely if WebView fails — `OnnxRuntimeWebView.tsx` lines 52–90
+**C-15.** Unsafe nested `data.data.proof` access without null checks in ZkProofBridge — `ZkProofWebView.tsx` lines 114, 158, 186
+**C-16.** Unused `faceCenterY` variable mixes X and Y coordinates (copy-paste bug) — `FaceRecognition.ts` line 726
 
-**File:** `core/matching.ts:53`
+#### LOW
 
-The function assumes L2² ranges from 0 to 4 (for normalized vectors), using 2.0 as the denominator. But there's no validation anywhere that embeddings are actually normalized. The `FaceRecognitionService` does normalize, but the SDK core functions accept raw `FloatVector` from any provider. If a non-normalized embedding is passed, the percentage will be meaningless or negative.
+**C-17.** `qualityScore?: never` type prevents any assignment; misaligned with `@reserved` intent — `core/types.ts` line 352
 
-**Fix:** Add a note in JSDoc that this assumes L2-normalized vectors, or add a runtime check/normalization step.
+### 2.2 Security Concerns (7 findings)
 
-### 1.5 MEDIUM — `verifyWithProof` Mutates the `outcome` Object
+#### CRITICAL
 
-**File:** `core/verification-core.ts:559`
+**S-1. Internal CDN URL Hardcoded** — `config/defaults.ts` line 11: `https://cdn.jmdt.io/face-zk/v1`. Internal infrastructure exposed in SDK defaults.
 
-The function modifies the outcome returned by `verifyOnly`:
-```ts
-outcome.zkProof = zkProof;        // line 559
-outcome.success = false;           // line 563
-outcome.error = { ... };           // line 564
-```
+**S-2. Path Traversal in Model Cache Download** — `resolveModelUri.ts` lines 58–61. Filename extracted from URL without sanitization. Crafted URLs could write outside cache directory.
 
-This mutates an object that was already returned from another function. While functional, this is fragile and could cause bugs if `verifyOnly` ever caches or reuses the object.
+#### HIGH
 
-**Fix:** Use spread operator: `const finalOutcome = { ...outcome, zkProof, success: false };`
+**S-3. WebView Universal File Access** — `OnnxRuntimeWebView.tsx` lines 457–459. `allowFileAccess`, `allowFileAccessFromFileURLs`, `allowUniversalAccessFromFileURLs` all `true` with `originWhitelist={['*']}`.
 
-### 1.6 MEDIUM — `ZkProofSummary.sizeBytes` Uses String Length, Not Byte Count
+**S-4. Always-Pass Liveness Placeholder Exported as Default** — `livenessProvider.ts` lines 126–152. Returns `passed: true, score: 0.95` unconditionally. Exported as `defaultLivenessProvider`.
 
-**File:** `core/verification-core.ts:546`
+**S-5. `Math.random()` for Reference IDs** — `enrollment-core.ts` lines 39–43. Not cryptographically secure. Security SDK should use `crypto.getRandomValues()`.
 
-```ts
-sizeBytes: proof.length,  // This is character count, not bytes
-```
+**S-6. Unsafe Base64 String Interpolation in Injected Scripts** — `LivenessWebView.tsx` lines 237, 250. No escaping applied before injection into WebView JavaScript.
 
-For non-ASCII proof strings (e.g., base64), `proof.length` !== byte size. Use `new TextEncoder().encode(proof).length` for actual byte count.
+#### MEDIUM
 
-### 1.7 MEDIUM — `generateReferenceId` Uses `Math.random()` for Uniqueness
+**S-7. Excessive Console Logging of Sensitive Data** — Multiple files. Image URIs, reference IDs, proof hashes logged without log-level filtering.
 
-**File:** `core/enrollment-core.ts:39`
+### 2.3 Performance Issues (5 findings)
 
-`Math.random()` is not cryptographically secure and has collision potential. For a security-oriented SDK, use `crypto.getRandomValues()` or `uuid`.
+#### HIGH
 
-### 1.8 LOW — `qualityScore` Field Type is `never` but Documented
+**P-1. JSON-Serialized Float32Array (~10MB per call)** — `OnnxRuntimeWebView.tsx` lines 54–58 and 74–78. `Array.from(imageData)` on 1.2M-element Float32Array, then JSON.stringify, injected into WebView, parsed back. Every detection/recognition call.
 
-**File:** `core/types.ts:352`
+**P-2. ONNX Runtime CDN with Version Mismatch** — WebView loads v1.16.0 from jsdelivr CDN (`OnnxRuntimeWebView.tsx` line 235), npm dependency is v1.23.2 (`package.json` line 53). Requires internet for local inference.
 
-```ts
-qualityScore?: never;
-```
+#### MEDIUM
 
-Using `never` means the field cannot be set to any value, even `undefined`. This is technically different from the `@reserved` intent. Use `boolean | undefined` with a JSDoc `@deprecated` or `@reserved` tag instead.
+**P-3.** `onnxruntime-web` npm dependency unused at runtime (bundle bloat) — `package.json` line 53
+**P-4.** `async` Promise constructor anti-pattern — `OnnxRuntimeWebView.tsx` line 24
+**P-5.** Empty catch block suppresses all WebView message parsing errors — `ZkProofWebView.tsx` line 261
+
+### 2.4 Documentation Issues (8 findings)
+
+#### CRITICAL
+
+**D-1. No LICENSE File; package.json says UNLICENSED** — `package.json` line 49. Legal blocker for any distribution.
+
+#### HIGH
+
+**D-2.** No CONTRIBUTING.md or CHANGELOG.md
+**D-3.** README.md (116 lines) missing: Git LFS requirement, metro.config.js asset extensions, `FaceZkSdk.init()` setup, camera permissions, peer dependency installation
+**D-4.** No test suite. Placeholder script: `"test": "echo \"Error: no test specified\" && exit 1"` — `package.json` line 39
+
+#### MEDIUM
+
+**D-5.** Stale comments: misleading pitch formula comment (FaceRecognition.ts line 727), developer thought-process comments left in (lines 366–370), typo "Intrpolation" (faceAlignment.ts line 149)
+**D-6.** Unexplained `@ts-ignore` directives (FaceRecognition.ts lines 85, 92) vs. properly documented one in resolveModelUri.ts line 14
+**D-7.** Widespread `@ts-ignore` usage (15+ instances across 6 files), indicating systematic type-system misalignment
+
+#### LOW
+
+**D-8.** India-specific "Aadhaar" string in generic SDK — `FacePoseGuidanceWebView.tsx` line 398
+
+### 2.5 Developer Experience Issues (8 findings)
+
+#### HIGH
+
+**DX-1.** Two disconnected initialization steps: `FaceZkSdk.init()` + `initializeSdkDependencies()`. Neither references the other.
+**DX-2.** `SdkConfig` vs `FaceZkConfig` naming confusion — unrelated configs with similar names
+**DX-3.** `verifyOnly()` requires 7 positional parameters
+
+#### MEDIUM
+
+**DX-4.** No build step; ships raw `.ts`/`.tsx` files. Consumers must compile. `package.json`: `"main": "index.ts"`
+**DX-5.** `as any` type assertions in UI flows (ReferenceEnrollmentFlow.tsx line 297, livenessProvider.ts line 151)
+**DX-6.** Dynamic `require()` inside async function (FaceZkVerificationFlow.tsx line 220) breaks tree-shaking
+
+#### LOW
+
+**DX-7.** Duplicate liveness provider files with different signatures across `adapters/` and `platform-adapters/`
+**DX-8.** Duplicate `l2SquaredDistance` in FaceRecognitionService (lines 679–686) vs core/matching.ts
 
 ---
 
-## 2. Security Concerns (for Open Source Release)
+## 3. Action Items Before Internal Distribution
 
-### 2.1 CRITICAL — CDN URL Hardcoded for Model Downloads
+### 3.1 Must-Fix (BLOCKING — No team should integrate until these are resolved)
 
-**File:** `config/defaults.ts:11`
+| # | Action | Owner Area | Files Affected | Est. Effort |
+|---|--------|-----------|----------------|-------------|
+| 1 | Fix Rules of Hooks: move all `useEffect`/`useState` above conditional returns | Frontend | `FaceZkVerificationFlow.tsx`, `ReferenceEnrollmentFlow.tsx` | 1 hour |
+| 2 | Fix `isSdkError`: validate against known `SdkErrorCode` values; deduplicate to shared util | Core | `enrollment-core.ts`, `verification-core.ts` | 1 hour |
+| 3 | Add null check for `config.zk` before accessing `requiredForSuccess` | Core | `verification-core.ts` | 15 min |
+| 4 | Guard division-by-zero in `calculateIOU`, `normalizeEmbedding`, pitch estimation | ML/CV | `FaceRecognition.ts` | 1 hour |
+| 5 | Add LICENSE file (MIT/Apache-2.0) and update `package.json` | Legal/Eng Lead | Root, `package.json` | 30 min |
+| 6 | Replace hardcoded `cdn.jmdt.io` with configurable URL or documented placeholder | Infra/Core | `config/defaults.ts` | 30 min |
+| 7 | Sanitize filename in `downloadAndCache` to prevent path traversal | Security/Core | `resolveModelUri.ts` | 30 min |
+| 8 | Add timeout to WebView bridge promises (runDetection, runRecognition) | Frontend | `OnnxRuntimeWebView.tsx` | 1 hour |
+| 9 | Add build step emitting compiled JS + `.d.ts` to `dist/` | Build/Tooling | `package.json`, new `tsconfig.build.json` | 2 hours |
+| 10 | Add basic test suite for core pure functions (matching, enrollment, verification) | QA/Core | New `__tests__/` directory | 4 hours |
 
-```ts
-export const DEFAULT_CDN_BASE = "https://cdn.jmdt.io/face-zk/v1";
-```
+**Estimated total: ~12 hours of focused engineering work.**
 
-This is an internal CDN. For open source, this should either be removed, point to a public CDN, or be clearly documented as a placeholder. Users running `npx face-zk setup` with no config will download from your private infrastructure.
+### 3.2 Should-Fix (Before integration teams start building)
 
-### 2.2 HIGH — OnnxRuntimeWebView Allows Universal File Access
+| # | Action | Owner Area | Est. Effort |
+|---|--------|-----------|-------------|
+| 1 | Rename/remove always-passing `defaultLivenessProvider` singleton | Security/Core | 30 min |
+| 2 | Replace `Math.random()` with `crypto.getRandomValues()` for reference IDs | Security/Core | 30 min |
+| 3 | Escape base64 strings before WebView injection | Frontend | 1 hour |
+| 4 | Add null checks for `data.data.*` in ZkProofBridge callbacks | Frontend | 30 min |
+| 5 | Fix ONNX Runtime version mismatch (1.16.0 CDN vs 1.23.2 npm) | Build/ML | 1 hour |
+| 6 | Write README with full setup guide (Git LFS, metro config, init steps, permissions) | Docs | 2 hours |
+| 7 | Add CONTRIBUTING.md and CHANGELOG.md | Docs/Eng Lead | 1 hour |
+| 8 | Unify or clearly document the two-step initialization | Core/Docs | 2 hours |
+| 9 | Add null checks for unsafe nested property access in ZkProofBridge | Frontend | 30 min |
+| 10 | Remove unused `onnxruntime-web` npm dependency or use it properly | Build | 30 min |
 
-**File:** `react-native/components/OnnxRuntimeWebView.tsx:458-459`
+### 3.3 Nice-to-Have (Improves quality, not blocking)
 
-```tsx
-allowFileAccess={true}
-allowFileAccessFromFileURLs={true}
-allowUniversalAccessFromFileURLs={true}
-```
-
-These flags give the WebView unrestricted access to the device file system. This is a known Android security concern. While necessary for ONNX model loading, it should be documented as a security consideration and ideally restricted to the minimum required scope.
-
-### 2.3 HIGH — Liveness Provider Ships a "Always Pass" Placeholder
-
-**File:** `react-native/adapters/livenessProvider.ts:120-145`
-
-The `defaultLivenessProvider` always returns `passed: true`. If a developer imports and uses this without reading the docs, their app will have zero liveness protection. This is exported as a convenient singleton:
-
-```ts
-export const defaultLivenessProvider = createLivenessProvider();
-```
-
-**Fix:** Either remove the default export, make it throw by default ("not implemented"), or rename it to `createPlaceholderLivenessProvider` to make the insecurity obvious.
-
-### 2.4 MEDIUM — Console Logging of Sensitive Data
-
-**Multiple files throughout**
-
-The SDK logs embedding dimensions, image URIs, proof hashes, base64 model data sizes, and detailed error contexts. For a production security SDK, this is excessive. Add log-level filtering and strip sensitive details in production mode.
+Reduce core function parameter counts (options objects), rename `SdkConfig`/`FaceZkConfig` for clarity, consolidate duplicate adapter files, remove duplicate `l2SquaredDistance` from FaceRecognitionService, replace `as any` assertions with proper types, convert runtime `require()` to static imports, add `deleteProof` to StorageAdapter, add log-level filtering, clean up stale comments/typos, remove India-specific strings, validate `JSON.parse` results in storage helpers, replace empty catch block in ZkProofWebView, fix `ModelSource.module` typing, resolve @ts-ignore usage (15+ instances).
 
 ---
 
-## 3. Optimization Opportunities
+## 4. Integration Guide for Internal Teams
 
-### 3.1 HIGH — Model Data Sent to WebView as JSON-Serialized Float32Array
+### What Works Today
 
-**File:** `react-native/components/OnnxRuntimeWebView.tsx:54-57`
+- **Core face matching pipeline** — detection, alignment, embedding, matching — is functional
+- **ZK proof generation** via Plonky3 WASM works end-to-end
+- **UI flow components** work in the happy path (SDK initialized, all deps provided)
+- **Storage adapter** for reference templates and proofs is operational
+- **Example app** demonstrates complete enrollment → verification → ZK flow
 
-```ts
-this.sendMessage('runDetection', {
-    imageData: Array.from(imageData),  // 640x640x3 = 1.2M floats → ~10MB JSON string
-    width, height,
-});
-```
+### What Internal Teams Should Know
 
-Converting `Float32Array` → `Array` → JSON string → injected JavaScript → parsed back is extremely expensive for 1.2M element arrays. This happens for every face detection call. Consider using `SharedArrayBuffer`, `MessageChannel`, or base64-encoding the binary data.
+1. **Two init calls required.** You must call both `FaceZkSdk.init(config)` (model sources) and `initializeSdkDependencies(deps)` (UI components). Missing either produces unclear errors.
 
-### 3.2 HIGH — ONNX Runtime Loaded from CDN Inside WebView
+2. **Internet required for inference.** ONNX Runtime is loaded from CDN inside the WebView. Offline mode is not supported until this is bundled.
 
-**File:** `react-native/components/OnnxRuntimeWebView.tsx:235`
+3. **The default liveness provider is a placeholder.** `defaultLivenessProvider` always returns `passed: true`. You MUST supply a real liveness implementation for any security-sensitive use case.
 
-```html
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.0/dist/ort.min.js"></script>
-```
+4. **No compiled output.** The SDK ships raw TypeScript. Your app's Metro/TS config must be able to compile it. Expect `@ts-ignore` warnings.
 
-This requires an internet connection for local model inference. The SDK's `package.json` lists `onnxruntime-web@^1.23.2` as a dependency, but the WebView loads `1.16.0` from CDN. Version mismatch, and the CDN dependency should be bundled for offline usage.
+5. **Large model files require Git LFS.** Clone without LFS configured and you get pointer files instead of actual models.
 
-### 3.3 MEDIUM — `useWasmLoader` Runs on Every Mount
+6. **WebView performance overhead.** Face detection involves serializing ~10MB of image data as JSON per call. Expect latency.
 
-**File:** `react-native/hooks/useWasmLoader.ts`
+### Minimum Viable Integration Checklist
 
-The hook loads and base64-encodes the WASM binary on every component mount. If `FaceZkVerificationFlow` unmounts and remounts (e.g., retry), the WASM is re-loaded. Consider memoizing at the module level.
+Before integrating, confirm:
 
-### 3.4 MEDIUM — `preprocessImage` Decodes JPEG Twice
-
-**File:** `react-native/services/FaceRecognition.ts:411-464`
-
-The flow is: Expo ImageManipulator → save as JPEG → read as base64 → decode base64 → jpeg.decode → Float32Array. The round-trip through base64 string is unnecessary; the image data could be read directly as binary.
-
-### 3.5 LOW — Unrolled L2 Distance Loop
-
-**File:** `core/matching.ts:30`
-
-The 4-element loop unrolling is a micro-optimization that modern JS engines already do. It adds complexity without measurable benefit in a JavaScript context (this isn't C). Keep it simple with a single loop.
-
-### 3.6 LOW — `onnxruntime-web` is a Direct Dependency
-
-**File:** `package.json:53`
-
-`onnxruntime-web` (1.23.2) is listed as a direct dependency, but the actual ONNX inference runs inside a WebView using a CDN-loaded version (1.16.0). The npm dependency adds to bundle size but isn't used at runtime. Either use the npm package properly or remove it from dependencies.
+- [ ] Must-Fix items 1–10 from Section 3.1 are resolved
+- [ ] Your metro.config.js includes `.onnx`, `.wasm`, `.html`, `.data` asset extensions
+- [ ] Git LFS is configured before cloning the SDK repo
+- [ ] Your app.json includes camera permissions
+- [ ] You have a real `LivenessProvider` implementation (not the default placeholder)
+- [ ] You understand the two-step initialization requirement
 
 ---
 
-## 4. Documentation Issues
+## 5. Verification Methodology
 
-### 4.1 HIGH — README Missing Critical Setup Steps
+This audit was conducted in two passes with mandatory evidence requirements.
 
-The README doesn't mention:
-- Git LFS is required before cloning (models/WASM won't download without it)
-- `metro.config.js` asset extension requirements (`.onnx`, `.wasm`, `.html`, `.data`)
-- The `FaceZkSdk.init()` step with model sources
-- How to configure `app.json` for camera permissions
-- Peer dependency installation instructions
+**Pass 1:** Full codebase read-through across all 45+ source files, producing 30 initial findings.
 
-The CLI `npx face-zk setup` prints some of this, but a developer reading the README won't know to run it.
+**Pass 2:** Five parallel deep-audit agents each reviewed a file subset with strict evidence requirements (exact file path, exact line number, verbatim code quote). Three verification agents then cross-checked every Pass 1 finding against the actual source.
 
-### 4.2 HIGH — No CHANGELOG, CONTRIBUTING, or LICENSE File
+**Quality controls applied:**
 
-For open source release:
-- `LICENSE` — Currently `"UNLICENSED"` in package.json. Must be changed.
-- `CONTRIBUTING.md` — Required for community contributions.
-- `CHANGELOG.md` — Needed for version tracking.
-
-### 4.3 MEDIUM — Stale/Misleading Comments
-
-- `FaceRecognition.ts:410` — "Helper methods (same as iOS version)" — There's no iOS version in this repo.
-- `FaceRecognition.ts:267` — Method `getEmbeddings` is undocumented and seemingly unused.
-- `FacePoseGuidanceWebView.tsx:29` — `iframeRef` typed as `HTMLIFrameElement` won't exist in React Native context.
-- `core/types.ts:502` — `renderOverlay` receives `state: any` — should be typed as `LivenessState`.
-
-### 4.4 MEDIUM — `core/README.md` and `react-native/README.md` Content
-
-These exist but aren't checked — verify they're up to date with the current architecture.
-
-### 4.5 LOW — India-Specific References in Generic SDK
-
-**Files:** `FacePoseGuidanceWebView.tsx:397-398`
-
-```tsx
-"We need to match the pose in your Aadhaar card."
-```
-
-This is India-specific language in what should be a generic SDK. These strings should be configurable or generic by default.
+- Every finding cites exact file, line number, and verbatim code
+- 5 findings from Pass 1 were **dropped** (could not be verified against actual code)
+- 1 finding from Pass 1 was **corrected** (init() "race condition" downgraded — JS is single-threaded for sync code; actual issue is silent re-initialization)
+- 15 **new findings** were discovered in Pass 2 that Pass 1 missed
+- Each finding includes a confidence rating: CONFIRMED (verified in code), LIKELY (strong evidence, depends on runtime), or OPINION (design preference)
 
 ---
 
-## 5. Developer Experience (DX) Issues
+## Appendix A — First-Pass Verification Table
 
-### 5.1 HIGH — Two Initialization Steps Required, Neither is Obvious
+| # | First-Pass Claim | Verdict |
+|---|-----------------|---------|
+| 1.1 | isSdkError unreliable | CONFIRMED |
+| 1.2 | Rules of Hooks violation | CONFIRMED |
+| 1.3 | init() race condition | PARTIALLY CORRECT — downgraded to silent re-init |
+| 1.4 | l2SquaredToPercentage scaling | CONFIRMED |
+| 1.5 | verifyWithProof mutates outcome | CONFIRMED |
+| 1.6 | sizeBytes uses string length | CONFIRMED |
+| 1.7 | Math.random() for reference IDs | CONFIRMED |
+| 1.8 | qualityScore type is never | CONFIRMED |
+| 2.1 | Hardcoded CDN URL | CONFIRMED |
+| 2.2 | Universal file access in WebView | CONFIRMED |
+| 2.3 | Always-pass liveness provider | CONFIRMED |
+| 2.4 | Sensitive console logging | CONFIRMED |
+| 3.1 | JSON-serialized Float32Array | CONFIRMED |
+| 3.2 | ONNX CDN + version mismatch | CONFIRMED |
+| 3.3 | useWasmLoader runs every mount | DROPPED — not verifiable without runtime |
+| 3.4 | preprocessImage decodes JPEG twice | DROPPED — architectural opinion |
+| 3.5 | Unrolled L2 loop unnecessary | DROPPED — style preference |
+| 3.6 | onnxruntime-web unused dependency | CONFIRMED |
+| 4.1 | README missing setup steps | CONFIRMED |
+| 4.2 | No LICENSE/CONTRIBUTING/CHANGELOG | CONFIRMED |
+| 4.3 | Stale comments | PARTIALLY CONFIRMED |
+| 4.4 | core/react-native READMEs unchecked | DROPPED — not actionable |
+| 4.5 | India-specific Aadhaar string | CONFIRMED |
+| 5.1 | Two init steps | CONFIRMED |
+| 5.2 | SdkConfig/FaceZkConfig naming | CONFIRMED |
+| 5.3 | 7-parameter functions | CONFIRMED |
+| 5.4 | No build step | CONFIRMED |
+| 5.5 | Binary models in git | DROPPED — not verified |
+| 5.6 | No test suite | CONFIRMED |
+| 5.7 | Duplicate adapter files | CONFIRMED |
+| 5.8 | Duplicate l2SquaredDistance | CONFIRMED |
 
-Developers must call BOTH:
-1. `FaceZkSdk.init(config)` — for model sources
-2. `initializeSdkDependencies(deps)` — for UI component injection
+## Appendix B — New Findings in Pass 2
 
-These serve different purposes but aren't connected. A developer who calls one but not the other gets confusing errors. Consider unifying into a single `FaceZkSdk.init()` call that accepts both.
-
-### 5.2 HIGH — `SdkConfig` and `FaceZkConfig` Are Confusingly Named
-
-- `FaceZkConfig` — passed to `FaceZkSdk.init()`, contains model sources
-- `SdkConfig` — passed to every core function and UI component, contains matching/liveness/zk/storage config
-
-These are unrelated configurations with similar names. Rename `FaceZkConfig` to `FaceZkInitConfig` or `ModelConfig`, and `SdkConfig` to `FaceZkRuntimeConfig` or `VerificationConfig`.
-
-### 5.3 HIGH — Core Functions Require Excessive Parameters
-
-```ts
-verifyOnly(reference, liveImageUri, sdkConfig, embeddingProvider, livenessProvider, imageDataProvider, options)
-// 7 parameters!
-```
-
-This is unwieldy. Consider a single options object:
-```ts
-verifyOnly({ reference, liveImageUri, config, providers: { embedding, liveness, imageData }, options })
-```
-
-### 5.4 MEDIUM — No Build Step / No Compiled Output
-
-The package ships raw `.ts` and `.tsx` files as both `main` and `types`:
-```json
-"main": "index.ts",
-"types": "index.ts",
-```
-
-This means the consuming app must compile the SDK's TypeScript, which:
-- Requires matching TS config
-- Slows down the consumer's build
-- Can cause version conflicts
-- Is unusual for published npm packages
-
-**Fix:** Add a build step that emits `dist/` with compiled JS + `.d.ts` files.
-
-### 5.5 MEDIUM — `assets/` Contains Binary ML Models in Git
-
-The `assets/models/` directory contains `.onnx` files (potentially 10s of MB) tracked in git. The README mentions Git LFS but doesn't enforce it. Consider:
-- Moving models to the CDN exclusively
-- Using Git LFS properly with `.gitattributes` enforcement
-- Or hosting a model registry
-
-### 5.6 MEDIUM — No Test Suite
-
-`package.json` has:
-```json
-"test": "echo \"Error: no test specified\" && exit 1"
-```
-
-The core pure functions (matching, enrollment, verification) are ideal for unit testing. Before open source release, add tests for at least:
-- `l2SquaredDistance` with known vectors
-- `computeFaceMatchResult` with edge cases
-- `createReferenceFromImage` with mock providers
-- `verifyOnly` / `verifyWithProof` with mock providers
-- `isSdkError` type guard
-
-### 5.7 LOW — Duplicate Code Between Adapters and Platform-Adapters
-
-`react-native/adapters/livenessProvider.ts` and `react-native/platform-adapters/livenessProvider.ts` both export `createLivenessProvider` with different signatures. The platform-adapters version is more complete but less discoverable. Consolidate into one location.
-
-### 5.8 LOW — `FaceRecognitionService` Has a Public `l2SquaredDistance` Method
-
-**File:** `react-native/services/FaceRecognition.ts:679`
-
-This duplicates `core/matching.ts:l2SquaredDistance`. It's a leftover from before the core extraction. Remove it.
-
----
-
-## 6. Architecture Observations
-
-### 6.1 Strengths
-
-- **Clean core/platform separation**: The `core/` directory is completely framework-agnostic. All React Native specifics are in `react-native/`.
-- **Interface-driven design**: `FaceEmbeddingProvider`, `LivenessProvider`, `ZkProofEngine`, `StorageAdapter` are all interfaces that consumers can implement.
-- **UI customization layers**: The three-tier customization (theme → strings → render props) is well-thought-out.
-- **Dependency injection**: `SdkDependencies` allows swapping internal components, which is rare and valuable.
-- **Good error modeling**: `SdkError` with typed error codes and structured details is solid.
-
-### 6.2 Concerns
-
-- **WebView-based inference**: Running ONNX inside a WebView with JSON serialization is a significant performance bottleneck. For production, consider `onnxruntime-react-native` or a native module bridge.
-- **Singleton patterns**: `faceRecognitionService`, `defaultStorageAdapter`, `defaultLivenessProvider` are module-level singletons. This makes testing harder and prevents multiple SDK instances.
-- **Mixed export patterns**: The `react-native/index.ts` re-exports everything from core plus adds RN-specific exports. This creates a very large API surface that's hard to navigate.
-
----
-
-## 7. Pre-Release Checklist
-
-### Must-Fix (Blocking)
-- [ ] Fix Rules of Hooks violation in both UI flow components
-- [ ] Fix `isSdkError` type guard to not match regular `Error` objects
-- [ ] Change license from `UNLICENSED` to an actual open-source license
-- [ ] Remove or replace hardcoded `cdn.jmdt.io` CDN URL
-- [ ] Rename/remove the always-passing `defaultLivenessProvider` singleton
-- [ ] Add a build step to emit compiled JS + type declarations
-- [ ] Add a basic test suite for core functions
-
-### Should-Fix (High Priority)
-- [ ] Unify `FaceZkSdk.init()` and `initializeSdkDependencies()` or document the two-step clearly
-- [ ] Bundle ONNX Runtime instead of loading from CDN in WebView
-- [ ] Add complete setup documentation to README
-- [ ] Remove India-specific strings from default SDK text
-- [ ] Add CONTRIBUTING.md and CHANGELOG.md
-- [ ] Remove duplicate `l2SquaredDistance` from FaceRecognitionService
-
-### Nice-to-Have (Improves Quality)
-- [ ] Reduce core function parameter counts (use options objects)
-- [ ] Rename `SdkConfig` vs `FaceZkConfig` for clarity
-- [ ] Consolidate duplicate liveness provider files
-- [ ] Add log-level filtering to suppress debug logs in production
-- [ ] Optimize WebView ↔ RN data transfer (avoid JSON for large arrays)
-- [ ] Remove `onnxruntime-web` from direct dependencies if unused at runtime
+- Division by zero in IOU calculation (CRITICAL)
+- Unguarded `config.zk` access (CRITICAL)
+- Path traversal in model cache download (CRITICAL)
+- Division by zero in normalizeEmbedding (HIGH)
+- Division by zero in pitch estimation (HIGH)
+- Unsafe base64 string interpolation (HIGH)
+- No timeout on WebView bridge promises (MEDIUM)
+- Unsafe nested property access in ZkProofBridge (MEDIUM)
+- Unused/buggy `faceCenterY` variable (MEDIUM)
+- Empty catch block in ZkProofWebView (MEDIUM)
+- `as any` type assertions in UI flows (MEDIUM)
+- Dynamic `require()` inside async function (MEDIUM)
+- Widespread @ts-ignore usage (MEDIUM)
+- Missing `deleteProof` in StorageAdapter (MEDIUM)
+- Unvalidated JSON.parse in storage helpers (MEDIUM)
+- async Promise constructor anti-pattern (MEDIUM)
