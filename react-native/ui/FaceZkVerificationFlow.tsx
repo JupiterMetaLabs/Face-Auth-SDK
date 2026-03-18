@@ -157,34 +157,10 @@ export const FaceZkVerificationFlow: React.FC<
   // Load WASM for ZK proofs
   const { wasmData } = useWasmLoader();
 
-  // Guard: after all hooks — SDK must be initialized
-  if (!FaceZkSdk.isInitialized()) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
-        <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
-          FaceZkSdk is not initialized.{"\n"}Call FaceZkSdk.init() before rendering this component.
-        </Text>
-      </View>
-    );
-  }
-
   // Notify parent of stage changes
   useEffect(() => {
     onStageChange?.(stage);
   }, [stage, onStageChange]);
-
-  // Initialize ONNX bridge for face recognition
-  const handleBridgeReady = (bridge: any) => {
-    console.log("[FaceZkVerificationFlow] ONNX bridge ready");
-    faceRecognitionService.setBridge(bridge);
-    setBridgeReady(true);
-  };
-
-  // Initialize ZK Proof bridge
-  const handleZkBridgeReady = (bridge: any) => {
-    console.log("[FaceZkVerificationFlow] ZK bridge ready");
-    setZkBridge(bridge);
-  };
 
   // Load models when bridge is ready
   useEffect(() => {
@@ -206,6 +182,30 @@ export const FaceZkVerificationFlow: React.FC<
         });
     }
   }, [bridgeReady, faceRecognitionService]);
+
+  // Guard: SDK must be initialized before rendering
+  if (!FaceZkSdk.isInitialized()) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
+        <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
+          FaceZkSdk is not initialized.{"\n"}Call FaceZkSdk.init() before rendering this component.
+        </Text>
+      </View>
+    );
+  }
+
+  // Initialize ONNX bridge for face recognition
+  const handleBridgeReady = (bridge: any) => {
+    console.log("[FaceZkVerificationFlow] ONNX bridge ready");
+    faceRecognitionService.setBridge(bridge);
+    setBridgeReady(true);
+  };
+
+  // Initialize ZK Proof bridge
+  const handleZkBridgeReady = (bridge: any) => {
+    console.log("[FaceZkVerificationFlow] ZK bridge ready");
+    setZkBridge(bridge);
+  };
 
   // Handle liveness success (image captured)
   const handleLivenessSuccess = async (imageUri: string) => {

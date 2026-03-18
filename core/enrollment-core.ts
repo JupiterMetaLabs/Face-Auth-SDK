@@ -12,6 +12,7 @@ import type {
   SdkConfig,
   SdkError,
 } from "./types";
+import { isSdkError } from "./types";
 
 /**
  * Interface for face embedding provider.
@@ -38,7 +39,9 @@ export interface FaceEmbeddingProvider {
  */
 function generateReferenceId(): ReferenceId {
   const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 9);
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const random = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   return `ref_${timestamp}_${random}`;
 }
 
@@ -242,14 +245,3 @@ export async function createReferenceFromImage(
   }
 }
 
-/**
- * Type guard to check if an error is an SdkError
- */
-function isSdkError(error: unknown): error is SdkError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    "message" in error
-  );
-}

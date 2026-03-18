@@ -48,6 +48,10 @@ export class FaceZkSdk {
       throw new Error("[FaceZkSdk] Already initializing. Avoid calling init() concurrently.");
     }
 
+    if (_state === "ready") {
+      throw new Error("[FaceZkSdk] Already initialized. Call FaceZkSdk.reset() before re-initializing.");
+    }
+
     _state = "initializing";
     _initError = null;
 

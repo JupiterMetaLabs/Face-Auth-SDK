@@ -18,8 +18,11 @@ import type { FloatVector, FaceMatchResult } from "./types";
  * @returns L2² distance. Lower is better. 0 = identical vectors.
  */
 export function l2SquaredDistance(a: FloatVector, b: FloatVector): number {
-  if (a.length !== b.length || a.length === 0) {
-    return Number.MAX_VALUE; // Return max distance for invalid inputs
+  if (a.length === 0 || b.length === 0) {
+    throw new Error("l2SquaredDistance: embeddings cannot be empty");
+  }
+  if (a.length !== b.length) {
+    throw new Error(`l2SquaredDistance: embedding length mismatch (${a.length} vs ${b.length})`);
   }
 
   let sumSquared = 0;

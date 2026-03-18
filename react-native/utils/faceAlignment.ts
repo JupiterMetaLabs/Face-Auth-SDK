@@ -61,6 +61,10 @@ export function estimateUmeyama(
     crossCovarianceY += srcDiffX * dstDiffY - srcDiffY * dstDiffX;
   }
 
+  if (srcVar === 0) {
+    throw new Error("estimateUmeyama: all landmarks are coincident — degenerate detection");
+  }
+
   // Scale
   const scale = Math.sqrt(
     (crossCovarianceX * crossCovarianceX +
@@ -72,6 +76,11 @@ export function estimateUmeyama(
   const norm = Math.sqrt(
     crossCovarianceX * crossCovarianceX + crossCovarianceY * crossCovarianceY,
   );
+
+  if (norm === 0) {
+    throw new Error("estimateUmeyama: zero covariance norm — landmarks may be collinear or degenerate");
+  }
+
   const cosTheta = crossCovarianceX / norm;
   const sinTheta = crossCovarianceY / norm;
 

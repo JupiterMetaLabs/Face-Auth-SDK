@@ -13,9 +13,42 @@
 
 import { FaceZkSdk as _FaceZkSdk } from "../FaceZkSdk";
 import { clearModelCache as _clearModelCache } from "./utils/resolveModelUri";
+import {
+  initializeSdkDependencies as _initializeSdkDependencies,
+  getDefaultSdkDependencies as _getDefaultSdkDependencies,
+  type SdkDependencies,
+} from "./dependencies";
+import type { FaceZkConfig } from "../config/types";
 
 export { FaceZkSdk } from "../FaceZkSdk";
 export { clearModelCache } from "./utils/resolveModelUri";
+
+/**
+ * Initialize the SDK in one call.
+ *
+ * Combines `FaceZkSdk.init(config)` and `initializeSdkDependencies(deps)` into
+ * a single entry point. Use this at app startup instead of calling both separately.
+ *
+ * @param config Model sources and SDK feature flags (same as FaceZkSdk.init)
+ * @param deps   React Native UI component overrides. Defaults to the SDK's built-in implementations.
+ *
+ * @example
+ * ```ts
+ * await initializeSdk({
+ *   models: {
+ *     detection:   { module: require('./assets/det_500m.onnx') },
+ *     recognition: { module: require('./assets/w600k_mbf.onnx') },
+ *   },
+ * });
+ * ```
+ */
+export async function initializeSdk(
+  config: FaceZkConfig,
+  deps: SdkDependencies = _getDefaultSdkDependencies(),
+): Promise<void> {
+  _initializeSdkDependencies(deps);
+  await _FaceZkSdk.init(config);
+}
 
 /**
  * Reset the SDK and clear any cached model files.

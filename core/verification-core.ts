@@ -19,6 +19,7 @@ import type {
   FaceMatchResult,
   ZkProofSummary,
 } from "./types";
+import { isSdkError } from "./types";
 
 import { computeFaceMatchResult } from "./matching";
 import type { FaceEmbeddingProvider } from "./enrollment-core";
@@ -126,7 +127,7 @@ async function resolveReference(
   // Generate referenceId if not provided
   const referenceId =
     input.referenceId ||
-    `ref_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    generateSecureId("ref");
 
   return {
     referenceId,
@@ -478,6 +479,9 @@ export async function verifyWithProof(
     );
   }
 
+  // config.zk is guaranteed defined here — the early return above exits if !config.zk?.enabled
+  const zkConfig = config.zk;
+
   config.onLog?.({
     level: "info",
     message: "Starting verification with ZK proof",
@@ -512,7 +516,9 @@ export async function verifyWithProof(
       message: "Generating ZK proof",
     });
 
-    const nonce = Math.floor(Math.random() * 1000000);
+    const nonceBytes = new Uint32Array(1);
+    crypto.getRandomValues(nonceBytes);
+    const nonce = nonceBytes[0];
     const startTime = Date.now();
 
     const { proof, publicInputs } = await config.zk.engine.generateProof(
@@ -559,7 +565,7 @@ export async function verifyWithProof(
     outcome.zkProof = zkProof;
 
     // Update success based on requiredForSuccess
-    if (config.zk.requiredForSuccess && !verified) {
+    if (zkConfig.requiredForSuccess && !verified) {
       outcome.success = false;
       outcome.error = {
         code: "ZK_ERROR",
@@ -599,7 +605,7 @@ export async function verifyWithProof(
     });
 
     // If ZK is required for success, mark as failure
-    if (config.zk.requiredForSuccess) {
+    if (zkConfig.requiredForSuccess) {
       return {
         ...outcome,
         success: false,
@@ -615,14 +621,10 @@ export async function verifyWithProof(
   }
 }
 
-/**
- * Type guard to check if an error is an SdkError
- */
-function isSdkError(error: unknown): error is SdkError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    "message" in error
-  );
+function generateSecureId(prefix: string): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const random = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${prefix}_${Date.now()}_${random}`;
 }
+

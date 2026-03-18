@@ -119,24 +119,6 @@ export const ReferenceEnrollmentFlow: React.FC<
   const deps = getSdkDependencies();
   const { OnnxRuntimeWebView, FacePoseGuidanceWebView, faceRecognitionService } = deps;
 
-  // Guard: SDK must be initialized before rendering (after all hooks)
-  if (!FaceZkSdk.isInitialized()) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
-        <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
-          FaceZkSdk is not initialized.{"\n"}Call FaceZkSdk.init() before rendering this component.
-        </Text>
-      </View>
-    );
-  }
-
-  // Initialize bridge for face recognition
-  const handleBridgeReady = (bridge: any) => {
-    console.log("[ReferenceEnrollmentFlow] ONNX bridge ready");
-    faceRecognitionService.setBridge(bridge);
-    setBridgeReady(true);
-  };
-
   // Load models when bridge is ready
   useEffect(() => {
     if (bridgeReady && faceRecognitionService.isBridgeSet()) {
@@ -160,6 +142,24 @@ export const ReferenceEnrollmentFlow: React.FC<
         });
     }
   }, [bridgeReady, faceRecognitionService, onError]);
+
+  // Guard: SDK must be initialized before rendering
+  if (!FaceZkSdk.isInitialized()) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
+        <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
+          FaceZkSdk is not initialized.{"\n"}Call FaceZkSdk.init() before rendering this component.
+        </Text>
+      </View>
+    );
+  }
+
+  // Initialize bridge for face recognition
+  const handleBridgeReady = (bridge: any) => {
+    console.log("[ReferenceEnrollmentFlow] ONNX bridge ready");
+    faceRecognitionService.setBridge(bridge);
+    setBridgeReady(true);
+  };
 
   // Handle image capture from pose guidance
   const handleCaptureSuccess = async (imageUri: string) => {

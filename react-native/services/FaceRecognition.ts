@@ -252,10 +252,11 @@ export class FaceRecognitionService {
       };
     } catch (error) {
       console.error("[FaceRecognition] ❌ Error:", error);
-      return {
-        status: "error",
-        message: error instanceof Error ? error.message : "Unknown error",
-      };
+      const message = error instanceof Error ? error.message : "Unknown error";
+      if (message.startsWith("NO_FACE:")) {
+        return { status: "no_face", message: "No usable face detected in the image" };
+      }
+      return { status: "error", message };
     }
   }
 
@@ -644,7 +645,7 @@ export class FaceRecognitionService {
     const area2 = (box2.x2 - box2.x1) * (box2.y2 - box2.y1);
     const union = area1 + area2 - intersection;
 
-    return intersection / union;
+    return union === 0 ? 0 : intersection / union;
   }
 
   private expandBox(
@@ -672,6 +673,7 @@ export class FaceRecognitionService {
 
   private normalizeEmbedding(embedding: number[]): number[] {
     const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+    if (norm === 0) throw new Error("NO_FACE: model returned a zero-vector — face crop may be empty or invalid");
     return embedding.map((val) => val / norm);
   }
 
@@ -733,7 +735,7 @@ export class FaceRecognitionService {
       (leftMouth[0] + rightMouth[0]) / 2 - eyeMidX,
     );
 
-    const pitchRatio = (nose[1] - midFaceY) / faceHeight;
+    const pitchRatio = faceHeight === 0 ? 0 : (nose[1] - midFaceY) / faceHeight;
     const pitch = pitchRatio * 90;
 
     return { yaw, pitch, roll };

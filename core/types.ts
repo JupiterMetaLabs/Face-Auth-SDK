@@ -180,6 +180,17 @@ export type SdkErrorCode =
   | "LIVENESS_FAILED"
   | "CANCELLED";
 
+const SDK_ERROR_CODES: ReadonlySet<SdkErrorCode> = new Set([
+  "NO_FACE",
+  "MULTIPLE_FACES",
+  "LOW_MATCH",
+  "SYSTEM_ERROR",
+  "ZK_ERROR",
+  "NO_REFERENCE",
+  "LIVENESS_FAILED",
+  "CANCELLED",
+]);
+
 /** Structured error information */
 export interface SdkError {
   code: SdkErrorCode;
@@ -191,6 +202,18 @@ export interface SdkError {
    * - underlying exception message (sanitized)
    */
   details?: Record<string, unknown>;
+}
+
+/** Type guard to check if an unknown value is an SdkError */
+export function isSdkError(error: unknown): error is SdkError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    "message" in error &&
+    typeof (error as Record<string, unknown>).message === "string" &&
+    SDK_ERROR_CODES.has((error as Record<string, unknown>).code as SdkErrorCode)
+  );
 }
 
 /** Complete verification outcome */
@@ -239,8 +262,6 @@ export interface MatchingConfig {
 export interface LivenessConfig {
   /** Enable or disable liveness/anti-spoof checks in this flow. */
   enabled: boolean;
-  /** Optional minimum liveness score to consider `passed: true`. */
-  minScore?: number;
 }
 
 // ----------------------------------------------------------------------------
