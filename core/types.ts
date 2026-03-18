@@ -138,12 +138,6 @@ export interface FaceMatchResult {
 
   /** Derived match percentage (0–100, higher = better match). */
   matchPercentage: number;
-
-  /** Configured threshold that was used for this decision. */
-  threshold: number;
-
-  /** True if distance <= threshold. */
-  passed: boolean;
 }
 
 /** Zero-knowledge proof summary */
@@ -252,12 +246,6 @@ export interface VerificationOutcome {
 // 3.1 Matching & Liveness Config
 // ----------------------------------------------------------------------------
 
-/** Matching configuration */
-export interface MatchingConfig {
-  /** L2-squared distance threshold; smaller is stricter. */
-  threshold: number;
-}
-
 /** Liveness configuration */
 export interface LivenessConfig {
   /** Enable or disable liveness/anti-spoof checks in this flow. */
@@ -273,7 +261,6 @@ export interface ZkProofEngine {
   generateProof(
     referenceEmbedding: FloatVector,
     liveEmbedding: FloatVector,
-    threshold: number,
     nonce: number,
   ): Promise<{
     proof: string;
@@ -348,7 +335,6 @@ export interface SdkLogger {
 
 /** Global SDK configuration */
 export interface SdkConfig extends SdkLogger {
-  matching: MatchingConfig;
   liveness?: LivenessConfig;
   zk?: ZkConfig;
   storage?: StorageAdapter;
@@ -358,7 +344,6 @@ export interface SdkConfig extends SdkLogger {
  * Per-call override; shallow-partial of SdkConfig.
  */
 export interface VerificationOptions {
-  matching?: Partial<MatchingConfig>;
   liveness?: Partial<LivenessConfig>;
   zk?: Partial<Pick<ZkConfig, "requiredForSuccess">>;
 
@@ -369,8 +354,8 @@ export interface VerificationOptions {
   includeImageData?: {
     base64?: boolean;
     sizeKb?: boolean;
-    /** @reserved Not yet implemented — setting this has no effect. */
-    qualityScore?: never;
+    /** Optional image quality score (0–1, higher = better). */
+    qualityScore?: number;
   };
 }
 
@@ -392,8 +377,7 @@ export interface EnrollmentOptions {
 
 /** Options for ZK-only proof generation */
 export interface ZkProofOptions {
-  threshold: number; // must match the threshold used for matching
-  nonce?: number;    // optional; SDK generates if absent
+  nonce?: number; // optional; SDK generates if absent
 }
 
 // ============================================================================

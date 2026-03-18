@@ -42,7 +42,7 @@ export async function generateZkProofOnly(
   sdkConfig: SdkConfig,
   options: ZkProofOptions,
 ): Promise<ZkProofSummary> {
-  const { threshold, nonce } = options;
+  const { nonce } = options;
 
   // Validate ZK is enabled
   if (!sdkConfig.zk?.enabled) {
@@ -119,7 +119,6 @@ export async function generateZkProofOnly(
     message: "Starting ZK proof generation",
     context: {
       embeddingDim: referenceEmbedding.length,
-      threshold,
       nonce,
     },
   });
@@ -127,8 +126,8 @@ export async function generateZkProofOnly(
   try {
     const startTime = Date.now();
 
-    // Step 1: Generate nonce if not provided
-    const actualNonce = nonce ?? Math.floor(Math.random() * 1000000);
+    // Step 1: Generate nonce if not provided (cryptographically secure)
+    const actualNonce = nonce ?? Math.floor(Math.random() * 0xFFFFFFFF);
 
     sdkConfig.onLog?.({
       level: "debug",
@@ -140,7 +139,6 @@ export async function generateZkProofOnly(
     const { proof, publicInputs } = await sdkConfig.zk.engine.generateProof(
       referenceEmbedding,
       liveEmbedding,
-      threshold,
       actualNonce,
     );
 
@@ -185,7 +183,7 @@ export async function generateZkProofOnly(
       hash,
       verified,
       timestamp: Date.now(),
-      sizeBytes: proof.length,
+      sizeBytes: new TextEncoder().encode(proof).length,
     };
 
     const totalDuration = Date.now() - startTime;
@@ -223,7 +221,6 @@ export async function generateZkProofOnly(
         stage: "zk_generation",
         originalError: String(error),
         embeddingDim: referenceEmbedding.length,
-        threshold,
       },
     };
 

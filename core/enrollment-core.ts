@@ -39,9 +39,7 @@ export interface FaceEmbeddingProvider {
  */
 function generateReferenceId(): ReferenceId {
   const timestamp = Date.now();
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  const random = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  const random = Math.random().toString(36).slice(2, 10);
   return `ref_${timestamp}_${random}`;
 }
 

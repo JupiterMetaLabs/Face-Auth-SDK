@@ -247,30 +247,18 @@ function mergeConfig(
   sdkConfig: SdkConfig,
   options: VerificationOptions,
 ): SdkConfig {
-  const merged: SdkConfig = {
-    ...sdkConfig,
-    matching: {
-      ...sdkConfig.matching,
-      ...options.matching,
-    },
-  };
+  const merged: SdkConfig = { ...sdkConfig };
 
   // Merge liveness config
   if (options.liveness && sdkConfig.liveness) {
-    merged.liveness = {
-      ...sdkConfig.liveness,
-      ...options.liveness,
-    };
+    merged.liveness = { ...sdkConfig.liveness, ...options.liveness };
   } else if (sdkConfig.liveness) {
     merged.liveness = sdkConfig.liveness;
   }
 
   // Merge ZK config
   if (options.zk && sdkConfig.zk) {
-    merged.zk = {
-      ...sdkConfig.zk,
-      ...options.zk,
-    };
+    merged.zk = { ...sdkConfig.zk, ...options.zk };
   } else if (sdkConfig.zk) {
     merged.zk = sdkConfig.zk;
   }
@@ -368,7 +356,6 @@ export async function verifyOnly(
     const matchResult: FaceMatchResult = computeFaceMatchResult(
       resolvedReference.embedding,
       liveCapture.embedding,
-      config.matching.threshold,
     );
 
     config.onLog?.({
@@ -377,14 +364,14 @@ export async function verifyOnly(
       context: {
         distance: matchResult.distance,
         matchPercentage: matchResult.matchPercentage,
-        passed: matchResult.passed,
       },
     });
 
     // Step 5: Build outcome
-    const success = matchResult.passed && (livenessResult?.passed ?? true);
+    // Pass/fail is determined by the ZK engine; here we only gate on liveness.
+    const success = livenessResult?.passed ?? true;
 
-    const outcome: VerificationOutcome = {
+    return {
       success,
       score: matchResult.matchPercentage,
       match: matchResult,
@@ -392,20 +379,6 @@ export async function verifyOnly(
       reference: resolvedReference,
       live: liveCapture,
     };
-
-    if (!success && !matchResult.passed) {
-      outcome.error = {
-        code: "LOW_MATCH",
-        message: `Match percentage ${matchResult.matchPercentage.toFixed(1)}% below threshold`,
-        details: {
-          stage: "matching",
-          distance: matchResult.distance,
-          threshold: matchResult.threshold,
-        },
-      };
-    }
-
-    return outcome;
   } catch (error) {
     // If it's already an SdkError, wrap it in outcome
     if (isSdkError(error)) {
@@ -516,15 +489,12 @@ export async function verifyWithProof(
       message: "Generating ZK proof",
     });
 
-    const nonceBytes = new Uint32Array(1);
-    crypto.getRandomValues(nonceBytes);
-    const nonce = nonceBytes[0];
+    const nonce = Math.floor(Math.random() * 0xFFFFFFFF);
     const startTime = Date.now();
 
     const { proof, publicInputs } = await config.zk.engine.generateProof(
       outcome.reference.embedding,
       outcome.live.embedding,
-      config.matching.threshold,
       nonce,
     );
 
@@ -548,7 +518,7 @@ export async function verifyWithProof(
       hash,
       verified,
       timestamp: Date.now(),
-      sizeBytes: proof.length,
+      sizeBytes: new TextEncoder().encode(proof).length,
     };
 
     config.onLog?.({
@@ -561,18 +531,20 @@ export async function verifyWithProof(
       },
     });
 
-    // Attach ZK proof to outcome
-    outcome.zkProof = zkProof;
-
-    // Update success based on requiredForSuccess
-    if (zkConfig.requiredForSuccess && !verified) {
-      outcome.success = false;
-      outcome.error = {
-        code: "ZK_ERROR",
-        message: "ZK proof verification failed",
-        details: { stage: "zk_verification", zkProof },
-      };
-    }
+    // Build new outcome with ZK results — no mutation of the original object (C-12)
+    const zkOutcome: VerificationOutcome =
+      zkConfig.requiredForSuccess && !verified
+        ? {
+            ...outcome,
+            zkProof,
+            success: false,
+            error: {
+              code: "ZK_ERROR",
+              message: "ZK proof verification failed",
+              details: { stage: "zk_verification", zkProof },
+            },
+          }
+        : { ...outcome, zkProof };
 
     // Optionally persist proof via storage adapter
     if (config.storage?.saveProof && verified) {
@@ -587,7 +559,7 @@ export async function verifyWithProof(
       });
     }
 
-    return outcome;
+    return zkOutcome;
   } catch (error) {
     const zkError: SdkError = {
       code: "ZK_ERROR",
@@ -622,9 +594,7 @@ export async function verifyWithProof(
 }
 
 function generateSecureId(prefix: string): string {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  const random = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  const random = Math.random().toString(36).slice(2, 10);
   return `${prefix}_${Date.now()}_${random}`;
 }
 

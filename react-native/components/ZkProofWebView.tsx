@@ -11,7 +11,6 @@ export interface ZkProofBridgeInterface {
     generateProof(
         embedding1: number[],
         embedding2: number[],
-        threshold: number,
         nonce: number
     ): Promise<{
         proof: string;
@@ -101,7 +100,6 @@ export class ZkProofBridge implements ZkProofBridgeInterface {
     async generateProof(
         embedding1: number[],
         embedding2: number[],
-        threshold: number,
         nonce: number
     ): Promise<{ proof: string; publicInputs: string[] }> {
         console.log('[ZkProofBridge] generateProof - Plonky placeholder');
@@ -115,9 +113,14 @@ export class ZkProofBridge implements ZkProofBridgeInterface {
                 clearTimeout(timeout);
                 this.messageCallbacks.delete('proof_result');
                 this.messageCallbacks.delete('error');
+                const payload = data?.data;
+                if (!payload) {
+                    reject(new Error('Malformed WebView response: missing data'));
+                    return;
+                }
                 resolve({
-                    proof: data.data.proof || '',
-                    publicInputs: data.data.public_inputs || []
+                    proof: payload.proof || '',
+                    publicInputs: payload.public_inputs || []
                 });
             });
 
@@ -131,7 +134,6 @@ export class ZkProofBridge implements ZkProofBridgeInterface {
             this.sendMessage('generate_proof', {
                 storedEmbedding: embedding1,
                 capturedEmbedding: embedding2,
-                threshold,
                 nonce
             });
         });
@@ -153,9 +155,13 @@ export class ZkProofBridge implements ZkProofBridgeInterface {
                 clearTimeout(timeout);
                 this.messageCallbacks.delete('verify_result');
                 this.messageCallbacks.delete('error');
+                const payload = data?.data;
+                if (!payload) {
+                    reject(new Error('Malformed WebView response: missing data'));
+                    return;
+                }
                 // Result structure from WASM: { "verified": true/false, "error": null }
-                // Fix: property name is 'verified', not 'valid'
-                resolve(data.data.verified === true);
+                resolve(payload.verified === true);
             });
 
             this.messageCallbacks.set('error', (data) => {

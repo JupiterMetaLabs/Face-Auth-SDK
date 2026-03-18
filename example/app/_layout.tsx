@@ -22,15 +22,10 @@ export default function RootLayout() {
         // Bundled assets: the example ships models alongside the SDK source.
         // In a real consumer app, these require() paths point to files you
         // downloaded with `npx face-zk setup` into your own assets folder.
-        // @ts-ignore – Metro resolves these static requires at build time
         detection:    { module: require("../../assets/models/det_500m.onnx") },
-        // @ts-ignore
         recognition:  { module: require("../../assets/models/w600k_mbf.onnx") },
-        // @ts-ignore
         antispoof:    { module: require("../../assets/models/antispoof.onnx") },
-        // @ts-ignore
         wasm:         { module: require("../../assets/wasm/zk_face_wasm_bg.wasm") },
-        // @ts-ignore
         zkWorkerHtml: { module: require("../../assets/zk-worker.html") },
       },
     })

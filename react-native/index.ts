@@ -93,7 +93,6 @@ export type {
   SdkErrorCode,
   SdkError,
   VerificationOutcome,
-  MatchingConfig,
   LivenessConfig,
   ZkProofEngine,
   ZkConfig,

@@ -22,27 +22,36 @@ export class OnnxRuntimeBridge {
             recModelData: recModelData.length
         });
         return new Promise(async (resolve, reject) => {
+            const timeout = setTimeout(() => {
+                this.messageCallbacks.delete('modelsLoaded');
+                this.messageCallbacks.delete('error');
+                reject(new Error('loadModels timeout after 120s'));
+            }, 120000);
+
             try {
                 console.log('[OnnxRuntimeBridge] Registering callbacks for modelsLoaded and error');
 
                 // Wait for response
                 this.messageCallbacks.set('modelsLoaded', () => {
+                    clearTimeout(timeout);
                     console.log('[OnnxRuntimeBridge] ✅ Received modelsLoaded callback from WebView!');
                     this.messageCallbacks.delete('modelsLoaded');
                     resolve();
                 });
 
                 this.messageCallbacks.set('error', (data) => {
+                    clearTimeout(timeout);
                     console.log('[OnnxRuntimeBridge] ❌ Received error callback from WebView:', data);
                     this.messageCallbacks.delete('error');
                     reject(new Error(data.error || JSON.stringify(data)));
                 });
 
                 console.log('[OnnxRuntimeBridge] Sending loadModels message to WebView');
-                // Send base64 data to WebView  
+                // Send base64 data to WebView
                 this.sendMessage('loadModels', { detModelData, recModelData });
                 console.log('[OnnxRuntimeBridge] Message sent, waiting for response...');
             } catch (error) {
+                clearTimeout(timeout);
                 console.error('[OnnxRuntimeBridge] Exception in loadModels:', error);
                 reject(error);
             }
@@ -51,6 +60,12 @@ export class OnnxRuntimeBridge {
 
     async runDetection(imageData: Float32Array, width: number, height: number): Promise<{ outputs: Record<string, { data: number[], dims: number[] }> }> {
         return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                this.messageCallbacks.delete('detectionResult');
+                this.messageCallbacks.delete('error');
+                reject(new Error('runDetection timeout after 60s'));
+            }, 60000);
+
             this.sendMessage('runDetection', {
                 imageData: Array.from(imageData),
                 width,
@@ -58,11 +73,13 @@ export class OnnxRuntimeBridge {
             });
 
             this.messageCallbacks.set('detectionResult', (result) => {
+                clearTimeout(timeout);
                 this.messageCallbacks.delete('detectionResult');
                 resolve(result);
             });
 
             this.messageCallbacks.set('error', (data) => {
+                clearTimeout(timeout);
                 this.messageCallbacks.delete('error');
                 reject(new Error(data.error || JSON.stringify(data)));
             });
@@ -71,6 +88,12 @@ export class OnnxRuntimeBridge {
 
     async runRecognition(imageData: Float32Array, width: number, height: number): Promise<{ data: number[], dims: number[] }> {
         return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                this.messageCallbacks.delete('recognitionResult');
+                this.messageCallbacks.delete('error');
+                reject(new Error('runRecognition timeout after 60s'));
+            }, 60000);
+
             this.sendMessage('runRecognition', {
                 imageData: Array.from(imageData),
                 width,
@@ -78,11 +101,13 @@ export class OnnxRuntimeBridge {
             });
 
             this.messageCallbacks.set('recognitionResult', (result) => {
+                clearTimeout(timeout);
                 this.messageCallbacks.delete('recognitionResult');
                 resolve(result);
             });
 
             this.messageCallbacks.set('error', (data) => {
+                clearTimeout(timeout);
                 this.messageCallbacks.delete('error');
                 reject(new Error(data.error || JSON.stringify(data)));
             });

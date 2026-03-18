@@ -54,7 +54,6 @@ export type {
   VerificationOutcome,
 
   // Config
-  MatchingConfig,
   LivenessConfig,
   ZkProofEngine,
   ZkConfig,
