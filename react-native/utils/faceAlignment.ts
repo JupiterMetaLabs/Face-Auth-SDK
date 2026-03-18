@@ -155,7 +155,7 @@ export function warpAffine(
       const srcX = a * x + b * y + tx;
       const srcY = c * x + d * y + ty;
 
-      // Bilinear Intrpolation
+      // Bilinear Interpolation
       // Check bounds (with 1px padding for interpolation)
       if (
         srcX >= 0 &&

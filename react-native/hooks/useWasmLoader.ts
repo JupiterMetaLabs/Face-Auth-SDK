@@ -1,5 +1,4 @@
 import { Asset } from 'expo-asset';
-// @ts-ignore - Usage of legacy API as per Expo SDK 54 migration guide
 import * as FileSystem from 'expo-file-system/legacy';
 import { useEffect, useState } from 'react';
 import { FaceZkSdk } from '../../FaceZkSdk';

@@ -82,14 +82,12 @@ export class FaceRecognitionService {
         // ── Bundled fallback (in-repo / monorepo usage) ────────────────────
         // Static require() calls resolved by Metro at build time.
         console.log("[FaceRecognition] Step 1: Loading detection model asset (bundled fallback)");
-        // @ts-ignore
         const detAsset = Asset.fromModule(require("../../assets/models/det_500m.onnx"));
         await detAsset.downloadAsync();
         detUrl = detAsset.localUri || detAsset.uri;
         console.log("[FaceRecognition] Detection model URL:", detUrl);
 
         console.log("[FaceRecognition] Step 2: Loading recognition model asset (bundled fallback)");
-        // @ts-ignore
         const recAsset = Asset.fromModule(require("../../assets/models/w600k_mbf.onnx"));
         await recAsset.downloadAsync();
         recUrl = recAsset.localUri || recAsset.uri;
@@ -189,19 +187,26 @@ export class FaceRecognitionService {
         };
       }
 
+      // If multiple boxes remain after threshold + NMS, pick the one whose center
+      // is closest to the frame center (640x640). The liveness/pose guidance flow
+      // already enforces the user's face is centered, so this is always the right face.
+      // Hard-failing here produces false MULTIPLE_FACES errors from spurious detections.
       if (boxes.length > 1) {
         console.warn(
-          "[FaceRecognition] ⚠️ Multiple faces detected:",
-          boxes.length,
+          `[FaceRecognition] ⚠️ ${boxes.length} faces detected — selecting most-centered.`,
         );
-        return {
-          status: "multiple_faces",
-          message: `Multiple faces detected (${boxes.length}). Please ensure only one person is in the frame.`,
-        };
       }
 
-      const box = boxes[0];
-      console.log("[FaceRecognition] ✅ Single face detected:", box);
+      const box = boxes.reduce((best, candidate) => {
+        const centerX = (candidate.x1 + candidate.x2) / 2;
+        const centerY = (candidate.y1 + candidate.y2) / 2;
+        const distCandidate = Math.hypot(centerX - 320, centerY - 320);
+        const bestCenterX = (best.x1 + best.x2) / 2;
+        const bestCenterY = (best.y1 + best.y2) / 2;
+        const distBest = Math.hypot(bestCenterX - 320, bestCenterY - 320);
+        return distCandidate < distBest ? candidate : best;
+      });
+      console.log("[FaceRecognition] ✅ Face selected (most centered):", box);
 
       // 4. Align face using 5-point landmarks (Umeyama + WarpAffine)
       console.log("[FaceRecognition] Step 4: Aligning face using landmarks...");
@@ -240,7 +245,7 @@ export class FaceRecognitionService {
         embedding.slice(0, 10),
       );
 
-      // 7. Estimate Pose
+      // 6. Estimate Pose
       const pose = this.estimatePoseFromLandmarks(box.landmarks);
       console.log("[FaceRecognition] Estimated Pose:", pose);
 
@@ -266,7 +271,7 @@ export class FaceRecognitionService {
   }
 
   /**
-   * Process a pre-cropped reference image (like Aadhaar) without face detection.
+   * Process a pre-cropped reference image without face detection.
    * This skips bounding box detection and directly extracts the embedding.
    * Use this for small, already-cropped document photos to preserve quality.
    */
@@ -475,7 +480,7 @@ export class FaceRecognitionService {
     );
 
     const boxes: DetectionBox[] = [];
-    const scoreThreshold = 0.25; // Lower threshold for better detection
+    const scoreThreshold = 0.5; // Raised from 0.25 — eliminates spurious detections that cause false "multiple faces"
 
     // Group outputs by type (scores, bboxes, landmarks)
     const scoreTensors: { data: number[]; dims: number[] }[] = [];
@@ -725,9 +730,6 @@ export class FaceRecognitionService {
 
     // 3. Pitch: Ratio of nose to eyes/mouth center
     const mouthMidY = (leftMouth[1] + rightMouth[1]) / 2;
-    const faceCenterY = (eyeMidX + mouthMidY) / 2; // Rough center
-    // Actually, face-logic uses: (nose.y - midFaceY) * 200
-    // midFaceY = (midEyeY + mouthY) / 2
     const eyeMidY = (leftEye[1] + rightEye[1]) / 2;
     const midFaceY = (eyeMidY + mouthMidY) / 2;
     const faceHeight = Math.hypot(
