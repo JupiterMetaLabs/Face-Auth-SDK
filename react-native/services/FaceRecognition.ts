@@ -187,26 +187,18 @@ export class FaceRecognitionService {
         };
       }
 
-      // If multiple boxes remain after threshold + NMS, pick the one whose center
-      // is closest to the frame center (640x640). The liveness/pose guidance flow
-      // already enforces the user's face is centered, so this is always the right face.
-      // Hard-failing here produces false MULTIPLE_FACES errors from spurious detections.
       if (boxes.length > 1) {
         console.warn(
-          `[FaceRecognition] ⚠️ ${boxes.length} faces detected — selecting most-centered.`,
+          `[FaceRecognition] ⚠️ ${boxes.length} faces detected — rejecting.`,
         );
+        return {
+          status: "multiple_faces",
+          message: "Multiple faces detected. Please ensure only one face is visible.",
+        };
       }
 
-      const box = boxes.reduce((best, candidate) => {
-        const centerX = (candidate.x1 + candidate.x2) / 2;
-        const centerY = (candidate.y1 + candidate.y2) / 2;
-        const distCandidate = Math.hypot(centerX - 320, centerY - 320);
-        const bestCenterX = (best.x1 + best.x2) / 2;
-        const bestCenterY = (best.y1 + best.y2) / 2;
-        const distBest = Math.hypot(bestCenterX - 320, bestCenterY - 320);
-        return distCandidate < distBest ? candidate : best;
-      });
-      console.log("[FaceRecognition] ✅ Face selected (most centered):", box);
+      const box = boxes[0];
+      console.log("[FaceRecognition] ✅ Single face detected:", box);
 
       // 4. Align face using 5-point landmarks (Umeyama + WarpAffine)
       console.log("[FaceRecognition] Step 4: Aligning face using landmarks...");
@@ -680,16 +672,6 @@ export class FaceRecognitionService {
     const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
     if (norm === 0) throw new Error("NO_FACE: model returned a zero-vector — face crop may be empty or invalid");
     return embedding.map((val) => val / norm);
-  }
-
-  // L2 squared distance for face matching
-  l2SquaredDistance(embedding1: number[], embedding2: number[]): number {
-    let sumSquared = 0;
-    for (let i = 0; i < embedding1.length; i++) {
-      const diff = embedding1[i] - embedding2[i];
-      sumSquared += diff * diff;
-    }
-    return sumSquared;
   }
 
   /**
