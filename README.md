@@ -44,17 +44,16 @@ The global configuration for the SDK instance.
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| **`matching`** | `Object` | **Required.** |
-| `matching.threshold` | `number` | L2-squared distance threshold. **Lower = Stricter**. Recommended: `0.8` (strict) to `1.2` (permissive). |
 | **`liveness`** | `Object` | **Optional.** Controls anti-spoofing. |
 | `liveness.enabled` | `boolean` | If `true`, requires liveness check to pass for overall success. |
-| `liveness.minScore` | `number` | Threshold `0.0` to `1.0`. Recommended: `0.5` - `0.7`. |
 | **`zk`** | `Object` | **Optional.** Controls ZK proof generation. |
 | `zk.enabled` | `boolean` | Enables the ZK proof subsystem. |
 | `zk.engine` | `ZkProofEngine` | The engine implementation (e.g., Plonky3 WebView bridge). |
 | `zk.requiredForSuccess` | `boolean` | If `true`, verification fails if ZK proof generation fails. |
 | **`storage`** | `StorageAdapter` | **Optional.** Provider for saving reference images/embeddings. |
 | **`onLog`** | `Function` | **Optional.** Local logging callback for telemetry. |
+
+> **Note:** Match pass/fail is determined by the ZK engine (which owns the threshold internally). The SDK exposes the raw L2² distance and match percentage in `VerificationOutcome.match` for informational use.
 
 ---
 
@@ -63,13 +62,12 @@ Pass these to `FaceZkVerificationFlow` or `verifyWithProof` to override global c
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| **`matching`** | `Partial` | Override `threshold` for this check. |
-| **`liveness`** | `Partial` | Override `enabled` or `minScore` for this check. |
+| **`liveness`** | `Partial` | Override `enabled` for this check. |
 | **`zk`** | `Partial` | Override `requiredForSuccess` for this session. |
 | **`includeImageData`**| `Object` | Request extra data in the verified event payload. |
 | `*.base64` | `boolean` | Include the captured live frame as a base64 string. |
 | `*.sizeKb` | `boolean` | Include the approximate size of the image. |
-| `*.qualityScore` | `boolean` | Include an AI-calculated quality score of the capture. |
+| `*.qualityScore` | `number` | Include an image quality score (0–1, higher = better). |
 
 ---
 
@@ -85,11 +83,48 @@ Pass these to `ReferenceEnrollmentFlow` or `createReferenceFromImage`.
 
 ## Basic Usage
 
-### 1. Initialize Dependencies
-Before using any UI components, you must initialize the SDK's internal bridges:
+### 0. Prerequisites
+
+**Git LFS** is required to clone ONNX model files and WASM binaries (stored via LFS):
+```bash
+git lfs install
+git lfs pull
+```
+
+**Peer dependencies** — install in your host app:
+```bash
+npx expo install react-native-webview expo-camera expo-file-system expo-asset
+```
+
+**Metro config** — add asset extensions so Metro bundles `.onnx`, `.wasm`, and `.html` files.
+In your `metro.config.js`:
+```js
+const { getDefaultConfig } = require('expo/metro-config');
+const config = getDefaultConfig(__dirname);
+config.resolver.assetExts.push('onnx', 'wasm', 'html', 'data');
+module.exports = config;
+```
+
+**Camera permissions** — add to your app config:
+- **iOS** (`app.json` or `Info.plist`): `NSCameraUsageDescription`
+- **Android** (`app.json` or `AndroidManifest.xml`): `android.permission.CAMERA`
+
+---
+
+### 1. Initialize the SDK
+Call once at app startup (replaces the old two-step `initializeSdkDependencies` + `FaceZkSdk.init` pattern):
 ```typescript
-import { initializeSdkDependencies } from '@jmdt/face-zk-sdk/react-native';
-// (See react-native/README.md for details)
+import { initializeSdk } from '@jmdt/face-zk-sdk/react-native';
+
+await initializeSdk({
+  models: {
+    detection:    { module: require('./assets/models/det_500m.onnx') },
+    recognition:  { module: require('./assets/models/w600k_mbf.onnx') },
+    antispoof:    { module: require('./assets/models/antispoof.onnx') },
+    wasm:         { module: require('./assets/wasm/zk_face_wasm_bg.wasm') },
+    zkWorkerHtml: { module: require('./assets/zk-worker.html') },
+  },
+});
 ```
 
 ### 2. Enrollment Flow
