@@ -72,11 +72,11 @@ export class FaceRecognitionService {
         const sdkConfig = FaceZkSdk.getConfig();
 
         console.log("[FaceRecognition] Step 1: Resolving detection model from SDK config");
-        detUrl = await resolveModelUri(sdkConfig.models.detection);
+        detUrl = await resolveModelUri(sdkConfig.models.detection, undefined, sdkConfig.allowedDomains);
         console.log("[FaceRecognition] Detection model URI:", detUrl);
 
         console.log("[FaceRecognition] Step 2: Resolving recognition model from SDK config");
-        recUrl = await resolveModelUri(sdkConfig.models.recognition);
+        recUrl = await resolveModelUri(sdkConfig.models.recognition, undefined, sdkConfig.allowedDomains);
         console.log("[FaceRecognition] Recognition model URI:", recUrl);
       } else {
         // ── Bundled fallback (in-repo / monorepo usage) ────────────────────
@@ -93,6 +93,12 @@ export class FaceRecognitionService {
         recUrl = recAsset.localUri || recAsset.uri;
         console.log("[FaceRecognition] Recognition model URL:", recUrl);
       }
+
+      console.log("[FaceRecognition] Step 2.5: Loading ONNX WASM asset");
+      const wasmAsset = Asset.fromModule(require("../../assets/onnx/ort-wasm-simd.wasm"));
+      await wasmAsset.downloadAsync();
+      const wasmUrl = wasmAsset.localUri || wasmAsset.uri;
+      console.log("[FaceRecognition] ONNX WASM URL:", wasmUrl);
 
       console.log("[FaceRecognition] Step 3: Reading model files as base64");
       // Read models as base64 to send to WebView
@@ -114,9 +120,18 @@ export class FaceRecognitionService {
         "KB",
       );
 
+      const wasmBase64 = await FileSystem.readAsStringAsync(wasmUrl, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      console.log(
+        "[FaceRecognition] ONNX WASM size:",
+        Math.round(wasmBase64.length / 1024),
+        "KB",
+      );
+
       console.log("[FaceRecognition] Step 4: Sending model data to WebView");
       // Send base64 data to WebView - it will convert to Blob URLs
-      const loadPromise = this.bridge.loadModels(detBase64, recBase64);
+      const loadPromise = this.bridge.loadModels(detBase64, recBase64, wasmBase64);
 
       console.log(
         "[FaceRecognition] Step 5: Waiting for WebView to load models...",

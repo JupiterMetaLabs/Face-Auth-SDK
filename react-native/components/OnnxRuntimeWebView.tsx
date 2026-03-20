@@ -1,6 +1,8 @@
+
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { ortMinJsContent } from '../../assets/onnx/ort-min';
 
 interface OnnxRuntimeBridgeProps {
     onReady: (bridge: OnnxRuntimeBridge) => void;
@@ -16,45 +18,33 @@ export class OnnxRuntimeBridge {
         this.webViewRef = webViewRef;
     }
 
-    async loadModels(detModelData: string, recModelData: string): Promise<void> {
+    async loadModels(detModelData: string, recModelData: string, wasmData?: string): Promise<void> {
         console.log('[OnnxRuntimeBridge] loadModels called with data lengths:', {
             detModelData: detModelData.length,
-            recModelData: recModelData.length
+            recModelData: recModelData.length,
+            wasmData: wasmData?.length ?? 0,
         });
-        return new Promise(async (resolve, reject) => {
+        return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 this.messageCallbacks.delete('modelsLoaded');
                 this.messageCallbacks.delete('error');
                 reject(new Error('loadModels timeout after 120s'));
             }, 120000);
 
-            try {
-                console.log('[OnnxRuntimeBridge] Registering callbacks for modelsLoaded and error');
-
-                // Wait for response
-                this.messageCallbacks.set('modelsLoaded', () => {
-                    clearTimeout(timeout);
-                    console.log('[OnnxRuntimeBridge] ✅ Received modelsLoaded callback from WebView!');
-                    this.messageCallbacks.delete('modelsLoaded');
-                    resolve();
-                });
-
-                this.messageCallbacks.set('error', (data) => {
-                    clearTimeout(timeout);
-                    console.log('[OnnxRuntimeBridge] ❌ Received error callback from WebView:', data);
-                    this.messageCallbacks.delete('error');
-                    reject(new Error(data.error || JSON.stringify(data)));
-                });
-
-                console.log('[OnnxRuntimeBridge] Sending loadModels message to WebView');
-                // Send base64 data to WebView
-                this.sendMessage('loadModels', { detModelData, recModelData });
-                console.log('[OnnxRuntimeBridge] Message sent, waiting for response...');
-            } catch (error) {
+            this.messageCallbacks.set('modelsLoaded', () => {
                 clearTimeout(timeout);
-                console.error('[OnnxRuntimeBridge] Exception in loadModels:', error);
-                reject(error);
-            }
+                console.log('[OnnxRuntimeBridge] ✅ Models loaded');
+                this.messageCallbacks.delete('modelsLoaded');
+                resolve();
+            });
+
+            this.messageCallbacks.set('error', (data) => {
+                clearTimeout(timeout);
+                this.messageCallbacks.delete('error');
+                reject(new Error(data.error || JSON.stringify(data)));
+            });
+
+            this.sendMessage('loadModels', { detModelData, recModelData, wasmData });
         });
     }
 
@@ -65,12 +55,6 @@ export class OnnxRuntimeBridge {
                 this.messageCallbacks.delete('error');
                 reject(new Error('runDetection timeout after 60s'));
             }, 60000);
-
-            this.sendMessage('runDetection', {
-                imageData: Array.from(imageData),
-                width,
-                height,
-            });
 
             this.messageCallbacks.set('detectionResult', (result) => {
                 clearTimeout(timeout);
@@ -83,6 +67,14 @@ export class OnnxRuntimeBridge {
                 this.messageCallbacks.delete('error');
                 reject(new Error(data.error || JSON.stringify(data)));
             });
+
+            // Encode Float32Array as base64 binary — avoids JSON serialisation overhead
+            // (~6.5 MB base64 vs ~25 MB JSON for a 640×640 detection input).
+            this.sendMessage('runDetection', {
+                imageDataB64: this.float32ToBase64(imageData),
+                width,
+                height,
+            });
         });
     }
 
@@ -93,12 +85,6 @@ export class OnnxRuntimeBridge {
                 this.messageCallbacks.delete('error');
                 reject(new Error('runRecognition timeout after 60s'));
             }, 60000);
-
-            this.sendMessage('runRecognition', {
-                imageData: Array.from(imageData),
-                width,
-                height,
-            });
 
             this.messageCallbacks.set('recognitionResult', (result) => {
                 clearTimeout(timeout);
@@ -111,6 +97,12 @@ export class OnnxRuntimeBridge {
                 this.messageCallbacks.delete('error');
                 reject(new Error(data.error || JSON.stringify(data)));
             });
+
+            this.sendMessage('runRecognition', {
+                imageDataB64: this.float32ToBase64(imageData),
+                width,
+                height,
+            });
         });
     }
 
@@ -119,20 +111,8 @@ export class OnnxRuntimeBridge {
             const message = JSON.parse(event.nativeEvent.data);
             const { type, ...data } = message;
 
-            // Create a truncated copy of data for logging
-            const logData = { ...data };
-            if (logData.data && Array.isArray(logData.data)) {
-                logData.data = `[Array(${logData.data.length})]`;
-            }
-            if (logData.imageData && Array.isArray(logData.imageData)) {
-                logData.imageData = `[Array(${logData.imageData.length})]`;
-            }
-
-            console.log('[OnnxRuntimeBridge] Received message from WebView:', type, logData);
-
-            // Debug messages
             if (type === '_debug') {
-                console.log('[OnnxRuntimeBridge] 🔍 WebView Debug:', data.message);
+                console.log('[OnnxRuntimeBridge] WebView debug:', data.message);
                 return;
             }
 
@@ -142,72 +122,43 @@ export class OnnxRuntimeBridge {
 
             const callback = this.messageCallbacks.get(type);
             if (callback) {
-                console.log('[OnnxRuntimeBridge] Executing callback for:', type);
                 callback(data);
-            } else {
-                console.log('[OnnxRuntimeBridge] No callback registered for:', type);
             }
         } catch (error) {
             console.error('[OnnxRuntimeBridge] Error parsing message:', error);
         }
     }
 
-    private sendMessage(type: string, params: any = {}) {
+    /**
+     * Send a message to the WebView via postMessage.
+     * postMessage has no practical size limit (unlike injectJavaScript which fails
+     * on Android above ~4 MB). This is critical for large model and tensor payloads.
+     */
+    sendMessage(type: string, params: any = {}) {
         if (this.webViewRef?.current) {
-            const payload = { type, ...params };
-            console.log('[OnnxRuntimeBridge] Sending message to WebView:', type);
-
-            // Log payload size for debugging
-            const payloadStr = JSON.stringify(payload);
-            console.log('[OnnxRuntimeBridge] Payload size:', payloadStr.length, 'characters');
-
-            if (payloadStr.length > 1000000) {
-                console.warn('[OnnxRuntimeBridge] ⚠️ Large payload detected:', Math.round(payloadStr.length / 1024 / 1024), 'MB');
-            }
-
-            try {
-                // Call the WebView function directly with the payload
-                console.log('[OnnxRuntimeBridge] Preparing to inject JavaScript...');
-                this.webViewRef.current.injectJavaScript(`
-                    (function() {
-                        try {
-                            console.log('[Injected] Received message type: ${type}');
-                            if (typeof window.handleRNMessage === 'function') {
-                                try {
-                                    const payload = ${payloadStr};
-                                    console.log('[Injected] Payload parsed, calling handleRNMessage');
-                                    window.handleRNMessage(payload);
-                                    window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-                                        type: '_debug',
-                                        message: 'handleRNMessage called successfully for: ${type}'
-                                    }));
-                                } catch (e) {
-                                    console.error('[Injected] Error:', e.message);
-                                    window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-                                        type: '_debug',
-                                        message: 'Error calling handleRNMessage: ' + e.message
-                                    }));
-                                }
-                            } else {
-                                console.error('[Injected] handleRNMessage not defined');
-                                window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-                                    type: '_debug',
-                                    message: 'handleRNMessage not defined, typeof: ' + typeof window.handleRNMessage
-                                }));
-                            }
-                        } catch (outerError) {
-                            console.error('[Injected] Outer error:', outerError.message);
-                        }
-                    })();
-                    true;
-                `);
-                console.log('[OnnxRuntimeBridge] JavaScript injected successfully');
-            } catch (error) {
-                console.error('[OnnxRuntimeBridge] Error injecting JavaScript:', error);
-            }
+            const message = JSON.stringify({ type, ...params });
+            console.log('[OnnxRuntimeBridge] postMessage →', type, '|', message.length, 'bytes');
+            this.webViewRef.current.postMessage(message);
         } else {
-            console.error('[OnnxRuntimeBridge] Cannot send message, webViewRef is null');
+            console.error('[OnnxRuntimeBridge] Cannot send message — webViewRef is null');
         }
+    }
+
+    /**
+     * Encodes a Float32Array as base64 binary using chunked String.fromCharCode
+     * to avoid call-stack overflow on large arrays (e.g. 640×640×3 = 4.9 MB).
+     * Result is ~4/3× the byte size, far smaller than JSON (which costs ~6–8×).
+     */
+    private float32ToBase64(arr: Float32Array): string {
+        const uint8 = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+        const CHUNK = 8192;
+        let binary = '';
+        for (let i = 0; i < uint8.length; i += CHUNK) {
+            binary += String.fromCharCode.apply(
+                null, uint8.subarray(i, i + CHUNK) as unknown as number[]
+            );
+        }
+        return btoa(binary);
     }
 
     isReady(): boolean {
@@ -220,15 +171,14 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
     const bridgeRef = useRef<OnnxRuntimeBridge | null>(null);
 
     useEffect(() => {
-        // Cleanup only
         return () => {
             bridgeRef.current = null;
         };
     }, []);
 
-    const initBridge = () => {
-        if (webViewRef.current && !bridgeRef.current) {
-            console.log('[OnnxRuntimeWebView] Creating bridge on LOAD...');
+    const handleWebViewLoad = () => {
+        console.log('[OnnxRuntimeWebView] WebView loaded');
+        if (!bridgeRef.current) {
             const bridge = new OnnxRuntimeBridge(webViewRef);
             bridgeRef.current = bridge;
             onReady(bridge);
@@ -237,62 +187,70 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
 
     const handleMessage = (event: any) => {
         try {
-            // Forward ALL messages to the bridge's handleMessage
             if (bridgeRef.current) {
                 bridgeRef.current.handleMessage(event);
             }
 
-            // Also check for errors locally
             const message = JSON.parse(event.nativeEvent.data);
             if (message.type === 'error') {
                 onError(message.error);
             }
         } catch (error) {
-            console.error('[OnnxRuntimeWebView] Error:', error);
+            console.error('[OnnxRuntimeWebView] Message handler error:', error);
         }
     };
 
+    // ort.min.js is inlined from the bundled assets/onnx/ort-min.ts export.
+    // The WebView HTML listens for messages via the standard 'message' event —
+    // both window and document listeners are registered for iOS/Android compatibility.
+    // baseUrl 'https://localhost' provides the Secure Context required for WebAssembly.
     const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <title>ONNX Worker</title>
-    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.0/dist/ort.min.js"></script>
+    <script>${ortMinJsContent}</script>
 </head>
 <body>
     <div id="status">Initializing...</div>
     <script>
-        // Define global variables
         let detectionSession = null;
         let recognitionSession = null;
-        
-        // Define postMessage FIRST - needed by everything
-        function postMessage(message) {
+
+        function postToRN(message) {
             if (window.ReactNativeWebView) {
-                console.log('[ONNX Worker] Posting message to RN:', message.type);
                 window.ReactNativeWebView.postMessage(JSON.stringify(message));
-            } else {
-                console.error('[ONNX Worker] ReactNativeWebView not available');
             }
         }
-        
-        // Define handleRNMessage IMMEDIATELY at top level - this is critical!
-        window.handleRNMessage = async function(message) {
+
+        function b64ToArrayBuffer(b64) {
+            const binary = atob(b64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function b64ToFloat32Array(b64) {
+            return new Float32Array(b64ToArrayBuffer(b64));
+        }
+
+        async function handleRNMessage(message) {
             try {
                 console.log('[ONNX Worker] Received message:', message.type);
                 if (document.getElementById('status')) {
                     document.getElementById('status').textContent = 'Processing: ' + message.type;
                 }
-                
                 switch (message.type) {
                     case 'loadModels':
-                        await loadModels(message.detModelData, message.recModelData);
+                        await loadModels(message.detModelData, message.recModelData, message.wasmData);
                         break;
                     case 'runDetection':
-                        await runDetection(message.imageData, message.width, message.height);
+                        await runDetection(message.imageDataB64, message.width, message.height);
                         break;
                     case 'runRecognition':
-                        await runRecognition(message.imageData, message.width, message.height);
+                        await runRecognition(message.imageDataB64, message.width, message.height);
                         break;
                 }
             } catch (error) {
@@ -300,170 +258,132 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
                 if (document.getElementById('status')) {
                     document.getElementById('status').textContent = 'Error: ' + error.message;
                 }
-                postMessage({ type: 'error', error: error.message });
+                postToRN({ type: 'error', error: error.message });
             }
-        };
-        
-        // Helper functions
+        }
+
+        // React Native WebView delivers postMessage via the 'message' event.
+        // Both window and document listeners are registered for cross-platform
+        // compatibility (iOS fires on window, some Android versions on document).
+        function onRNMessage(event) {
+            let message;
+            try {
+                message = JSON.parse(event.data);
+            } catch (e) {
+                console.error('[ONNX Worker] Failed to parse message:', e);
+                return;
+            }
+            handleRNMessage(message);
+        }
+        window.addEventListener('message', onRNMessage);
+        document.addEventListener('message', onRNMessage);
+
         async function init() {
             try {
                 console.log('[ONNX Worker] Initializing...');
-                document.getElementById('status').textContent = 'Initializing ONNX Runtime...';
-                ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.16.0/dist/';
-                
-                console.log('[ONNX Worker] Ready');
                 document.getElementById('status').textContent = 'Ready';
-                postMessage({ type: 'ready' });
+                postToRN({ type: 'ready' });
             } catch (error) {
                 console.error('[ONNX Worker] Init error:', error);
                 document.getElementById('status').textContent = 'Error: ' + error.message;
-                postMessage({ type: 'error', error: error.message });
+                postToRN({ type: 'error', error: error.message });
             }
         }
-        
-        async function loadModels(detBase64, recBase64) {
+
+        async function loadModels(detBase64, recBase64, wasmBase64) {
             try {
-                console.log('[ONNX Worker] Loading models from base64 data...');
-                console.log('[ONNX Worker] Detection data length:', detBase64 ? detBase64.length : 0, 'chars');
-                console.log('[ONNX Worker] Recognition data length:', recBase64 ? recBase64.length : 0, 'chars');
+                if (wasmBase64) {
+                    // ORT 1.16 always attempts WebAssembly.instantiateStreaming(fetch(path)) first.
+                    // Setting wasmBinary alone doesn't prevent the fetch from being attempted,
+                    // which fails with "TypeError: Failed to fetch" because there is no local server.
+                    //
+                    // Fix: create a Blob object URL from the WASM binary. ORT can then "fetch"
+                    // it from a blob: URL without any network access. This is compatible with
+                    // both WebAssembly.instantiateStreaming (fast path) and instantiate (fallback).
+                    console.log('[ONNX Worker] Creating WASM blob URL...');
+                    const wasmBytes = b64ToArrayBuffer(wasmBase64);
+                    const wasmBlob = new Blob([wasmBytes], { type: 'application/wasm' });
+                    const wasmUrl = URL.createObjectURL(wasmBlob);
+
+                    // Map all ORT WASM filename variants to the same local blob URL so that
+                    // ORT can load whichever WASM backend it selects without hitting the network.
+                    ort.env.wasm.wasmPaths = {
+                        'ort-wasm.wasm': wasmUrl,
+                        'ort-wasm-simd.wasm': wasmUrl,
+                        'ort-wasm-threaded.wasm': wasmUrl,
+                        'ort-wasm-simd-threaded.wasm': wasmUrl,
+                    };
+                    ort.env.wasm.numThreads = 1;
+                    console.log('[ONNX Worker] WASM blob URL set:', wasmUrl.substring(0, 40));
+                }
+
+                console.log('[ONNX Worker] Loading detection model...');
                 document.getElementById('status').textContent = 'Loading models...';
-                
-                // Convert base64 to ArrayBuffer
-                console.log('[ONNX Worker] Converting detection model from base64...');
-                const detBinary = atob(detBase64);
-                const detBytes = new Uint8Array(detBinary.length);
-                for (let i = 0; i < detBinary.length; i++) {
-                    detBytes[i] = detBinary.charCodeAt(i);
-                }
-                const detArrayBuffer = detBytes.buffer;
-                console.log('[ONNX Worker] Detection model size:', detArrayBuffer.byteLength, 'bytes');
-                
-                console.log('[ONNX Worker] Creating detection session...');
-                detectionSession = await ort.InferenceSession.create(detArrayBuffer);
-                console.log('[ONNX Worker] Detection session created!');
-                
-                // Convert recognition model
-                console.log('[ONNX Worker] Converting recognition model from base64...');
-                const recBinary = atob(recBase64);
-                const recBytes = new Uint8Array(recBinary.length);
-                for (let i = 0; i < recBinary.length; i++) {
-                    recBytes[i] = recBinary.charCodeAt(i);
-                }
-                const recArrayBuffer = recBytes.buffer;
-                console.log('[ONNX Worker] Recognition model size:', recArrayBuffer.byteLength, 'bytes');
-                
-                console.log('[ONNX Worker] Creating recognition session...');
-                recognitionSession = await ort.InferenceSession.create(recArrayBuffer);
-                console.log('[ONNX Worker] Recognition session created!');
-                
-                console.log('[ONNX Worker] ✅ Both models loaded successfully!');
+                detectionSession = await ort.InferenceSession.create(b64ToArrayBuffer(detBase64));
+                console.log('[ONNX Worker] Detection session created');
+
+                console.log('[ONNX Worker] Loading recognition model...');
+                recognitionSession = await ort.InferenceSession.create(b64ToArrayBuffer(recBase64));
+                console.log('[ONNX Worker] Recognition session created');
+
                 document.getElementById('status').textContent = 'Models loaded';
-                postMessage({ type: 'modelsLoaded' });
+                postToRN({ type: 'modelsLoaded' });
             } catch (error) {
                 console.error('[ONNX Worker] Model loading error:', error);
                 document.getElementById('status').textContent = 'Model load error: ' + error.message;
-                postMessage({ type: 'error', error: error.message });
+                postToRN({ type: 'error', error: error.message });
             }
         }
-        
-        async function runDetection(imageData, width, height) {
+
+        async function runDetection(imageDataB64, width, height) {
             try {
-                console.log('[ONNX Worker] Running detection...');
-                console.log('[ONNX Worker] Received imageData:', typeof imageData, 'length:', imageData ? imageData.length : 0);
-                console.log('[ONNX Worker] Image dimensions:', width, 'x', height);
-                
-                document.getElementById('status').textContent = 'Running detection...';
-                
-                if (!detectionSession) {
-                    throw new Error('Detection model not loaded');
-                }
-                
-                // Create input tensor [1, 3, height, width]
-                const inputTensor = new ort.Tensor('float32', new Float32Array(imageData), [1, 3, height, width]);
-                console.log('[ONNX Worker] Created input tensor:', inputTensor.dims);
-                
-                // Get the actual input name from the model
+                if (!detectionSession) throw new Error('Detection model not loaded');
+
+                const imageData = b64ToFloat32Array(imageDataB64);
+                const inputTensor = new ort.Tensor('float32', imageData, [1, 3, height, width]);
                 const inputName = detectionSession.inputNames[0];
-                console.log('[ONNX Worker] Using input name:', inputName);
-                
-                // Run inference
-                console.log('[ONNX Worker] Running inference...');
                 const results = await detectionSession.run({ [inputName]: inputTensor });
-                console.log('[ONNX Worker] Inference complete! Output keys:', Object.keys(results));
-                
-                // Return ALL output tensors (SCRFD has 9 outputs for 3 scales)
+
                 const outputs = {};
                 for (const key of Object.keys(results)) {
                     outputs[key] = {
                         data: Array.from(results[key].data),
-                        dims: results[key].dims
+                        dims: results[key].dims,
                     };
                 }
-                
-                console.log('[ONNX Worker] Returning', Object.keys(outputs).length, 'output tensors');
-                
-                // Return all outputs
-                postMessage({ 
-                    type: 'detectionResult',
-                    outputs: outputs
-                });
-                
-                console.log('[ONNX Worker] ✅ Detection complete!');
+
+                postToRN({ type: 'detectionResult', outputs });
             } catch (error) {
                 console.error('[ONNX Worker] Detection error:', error);
-                postMessage({ type: 'error', error: error.message });
+                postToRN({ type: 'error', error: error.message });
             }
         }
-        
-        async function runRecognition(imageData, width, height) {
+
+        async function runRecognition(imageDataB64, width, height) {
             try {
-                console.log('[ONNX Worker] Running recognition...');
-                console.log('[ONNX Worker] Recognition session state:', recognitionSession ? 'LOADED' : 'NULL');
-                console.log('[ONNX Worker] Detection session state:', detectionSession ? 'LOADED' : 'NULL');
-                
-                document.getElementById('status').textContent = 'Running recognition...';
-                if (!recognitionSession) {
-                    console.error('[ONNX Worker] ❌ Recognition model is NULL - did WebView reload?');
-                    throw new Error('Recognition model not loaded');
-                }
-                
-                // Create input tensor [1, 3, 112, 112]
-                const inputTensor = new ort.Tensor('float32', new Float32Array(imageData), [1, 3, width, height]);
-                console.log('[ONNX Worker] Created input tensor:', inputTensor.dims);
-                
-                // Get the actual input name from the model
+                if (!recognitionSession) throw new Error('Recognition model not loaded');
+
+                const imageData = b64ToFloat32Array(imageDataB64);
+                const inputTensor = new ort.Tensor('float32', imageData, [1, 3, width, height]);
                 const inputName = recognitionSession.inputNames[0];
-                console.log('[ONNX Worker] Using input name:', inputName);
-                
-                // Run inference
-                console.log('[ONNX Worker] Running recognition inference...');
                 const results = await recognitionSession.run({ [inputName]: inputTensor });
-                console.log('[ONNX Worker] Recognition complete! Output keys:', Object.keys(results));
-                
-                // Get output tensor (embedding)
+
                 const outputKey = Object.keys(results)[0];
                 const output = results[outputKey];
-                console.log('[ONNX Worker] Embedding dims:', output.dims, 'size:', output.data.length);
-                
-                // Return embedding
-                postMessage({ 
+                postToRN({
                     type: 'recognitionResult',
                     data: Array.from(output.data),
-                    dims: output.dims
+                    dims: output.dims,
                 });
-                
-                console.log('[ONNX Worker] ✅ Recognition complete!');
             } catch (error) {
                 console.error('[ONNX Worker] Recognition error:', error);
-                postMessage({ type: 'error', error: error.message });
+                postToRN({ type: 'error', error: error.message });
             }
         }
-        
-        // Initialize when ready
+
         if (typeof ort !== 'undefined') {
             init();
         } else {
-            // Wait for external script to load
             window.addEventListener('load', init);
         }
     </script>
@@ -474,18 +394,17 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
         <View style={styles.hidden}>
             <WebView
                 ref={webViewRef}
-                source={{ html: htmlContent }}
+                source={{ html: htmlContent, baseUrl: 'https://localhost' }}
                 onMessage={handleMessage}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
                 originWhitelist={['*']}
-                allowFileAccess={true}
-                allowFileAccessFromFileURLs={true}
-                allowUniversalAccessFromFileURLs={true}
                 style={styles.webview}
-                onLoad={() => {
-                    console.log('[OnnxRuntimeWebView] WebView loaded');
-                    initBridge();
+                onLoad={handleWebViewLoad}
+                onError={(syntheticEvent) => {
+                    const { nativeEvent } = syntheticEvent;
+                    console.error('[OnnxRuntimeWebView] WebView error:', nativeEvent);
+                    onError(nativeEvent.description || 'WebView load error');
                 }}
             />
         </View>

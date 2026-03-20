@@ -17,8 +17,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "jsx": "react-native",
-    "composite": true,
-    "emitDeclarationOnly": true
+    "composite": true
   },
   "include": [
     "index.ts",
@@ -27,7 +26,8 @@
     "config/**/*.ts",
     "react-native/**/*.ts",
     "react-native/**/*.tsx",
-    "storage/**/*.ts"
+    "storage/**/*.ts",
+    "assets/onnx/**/*.ts"
   ],
   "exclude": [
     "node_modules",
