@@ -32,23 +32,20 @@ export {
 } from "./utils/modelInitialisationChecks";
 
 /**
- * Initialize the SDK in one call.
+ * Bootstraps the Face+ZK SDK and prepares local dependency injection within a React Native application.
  *
- * Combines `FaceZkSdk.init(config)` and `initializeSdkDependencies(deps)` into
- * a single entry point. Use this at app startup instead of calling both separately.
+ * You must call this function at the very root of your application lifecycle (e.g., in `App.tsx` or `index.js`) before attempting to mount any SDK UI flows or headless hooks.
  *
- * @param config Model sources and SDK feature flags (same as FaceZkSdk.init)
- * @param deps   React Native UI component overrides. Defaults to the SDK's built-in implementations.
+ * **Initialization Context:** Unlike non-React contexts, React Native needs explicit dependency injection to handle native File System access and WebView bridging. This unified setup replaces the deprecated two-step initialization process and registers the `defaultSdkDependencies` globally.
  *
+ * @param {FaceZkConfig} config - The global SDK configuration, including model CDN URLs and threshold limits.
+ * @param {SdkDependencies} [deps] - Optional override to inject custom Platform Adapters (e.g., custom WebViews for debugging).
+ * @returns {Promise<void>} Resolves when the core singleton is ready.
+ * 
  * @example
- * ```ts
  * await initializeSdk({
- *   models: {
- *     detection:   { module: require('./assets/det_500m.onnx') },
- *     recognition: { module: require('./assets/w600k_mbf.onnx') },
- *   },
+ *   models: { cdnBaseUrl: 'https://cdn.mycompany.com/zk' }
  * });
- * ```
  */
 export async function initializeSdk(
   config: FaceZkConfig,
@@ -108,7 +105,7 @@ export type {
   ReferenceStorageRecord,
   ProofStorageRecord,
   SdkLogger,
-  SdkConfig,
+  FaceZkRuntimeConfig,
   VerificationOptions,
   EnrollmentOptions,
   ZkProofOptions,
@@ -167,10 +164,12 @@ export {
 
 // Liveness
 export {
-  createLivenessProvider,
-  defaultLivenessProvider,
   createLivenessResultFromWebView,
+  createWebViewLivenessProvider,
+  createLivenessProvider,
+  createZkFaceAuthLivenessProvider,
   type LivenessProviderConfig,
+  type ZkFaceAuthLivenessService,
 } from "./adapters/livenessProvider";
 
 // Image Data
@@ -207,6 +206,7 @@ export {
 export {
   verifyOnly,
   verifyWithProof,
+  type VerifyCallOptions,
 } from "../core/verification-core";
 
 export {

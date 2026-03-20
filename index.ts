@@ -61,7 +61,7 @@ export type {
   ReferenceStorageRecord,
   ProofStorageRecord,
   SdkLogger,
-  SdkConfig,
+  FaceZkRuntimeConfig,
   VerificationOptions,
 
   // Options
@@ -99,6 +99,7 @@ export {
 export {
   verifyOnly,
   verifyWithProof,
+  type VerifyCallOptions,
   type LivenessProvider,
 } from "./core/verification-core";
 
