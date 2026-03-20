@@ -11,7 +11,6 @@ export interface ZkProofBridgeInterface {
     generateProof(
         embedding1: number[],
         embedding2: number[],
-        threshold: number,
         nonce: number
     ): Promise<{
         proof: string;
@@ -101,11 +100,8 @@ export class ZkProofBridge implements ZkProofBridgeInterface {
     async generateProof(
         embedding1: number[],
         embedding2: number[],
-        threshold: number,
         nonce: number
     ): Promise<{ proof: string; publicInputs: string[] }> {
-        console.log('[ZkProofBridge] generateProof - Plonky placeholder');
-
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 reject(new Error('Proof generation timeout'));
@@ -115,9 +111,14 @@ export class ZkProofBridge implements ZkProofBridgeInterface {
                 clearTimeout(timeout);
                 this.messageCallbacks.delete('proof_result');
                 this.messageCallbacks.delete('error');
+                const payload = data?.data;
+                if (!payload) {
+                    reject(new Error('Malformed WebView response: missing data'));
+                    return;
+                }
                 resolve({
-                    proof: data.data.proof || '',
-                    publicInputs: data.data.public_inputs || []
+                    proof: payload.proof || '',
+                    publicInputs: payload.public_inputs || []
                 });
             });
 
@@ -131,7 +132,6 @@ export class ZkProofBridge implements ZkProofBridgeInterface {
             this.sendMessage('generate_proof', {
                 storedEmbedding: embedding1,
                 capturedEmbedding: embedding2,
-                threshold,
                 nonce
             });
         });
@@ -153,9 +153,13 @@ export class ZkProofBridge implements ZkProofBridgeInterface {
                 clearTimeout(timeout);
                 this.messageCallbacks.delete('verify_result');
                 this.messageCallbacks.delete('error');
+                const payload = data?.data;
+                if (!payload) {
+                    reject(new Error('Malformed WebView response: missing data'));
+                    return;
+                }
                 // Result structure from WASM: { "verified": true/false, "error": null }
-                // Fix: property name is 'verified', not 'valid'
-                resolve(data.data.verified === true);
+                resolve(payload.verified === true);
             });
 
             this.messageCallbacks.set('error', (data) => {
@@ -258,7 +262,9 @@ export const ZkProofWebView: React.FC<ZkProofWebViewProps> = ({
                     onReady(bridgeRef.current);
                 }
             }
-        } catch (e) { }
+        } catch (e) { 
+            console.error('[ZkProofWebView] Message parse error:', e);
+        }
     };
 
     const handleWebViewLoad = () => {
@@ -279,6 +285,8 @@ export const ZkProofWebView: React.FC<ZkProofWebViewProps> = ({
         <View style={styles.hidden}>
             <WebView
                 ref={webViewRef}
+                // CRITICAL: baseUrl must be https://localhost to provide a Secure Context for WebAssembly logic.
+                // It does NOT make actual network requests, but prevents the WebView from throwing security errors.
                 source={{ html: wasmData.workerHtml, baseUrl: 'https://localhost' }}
                 onMessage={handleMessage}
                 onLoad={handleWebViewLoad}

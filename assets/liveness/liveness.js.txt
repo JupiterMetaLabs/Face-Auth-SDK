@@ -53,6 +53,8 @@ const FACE_WIDTH_FAR_MIN = 0.15; // Arm's length
 const FACE_WIDTH_FAR_MAX = 0.3;
 const FACE_WIDTH_NEAR_MIN = 0.35; // Close up for perspective check
 const PERSPECTIVE_RATIO_THRESHOLD = 1.02; // Lowered from 1.05 to catch 1.03 cases
+const VERTICAL_PERSPECTIVE_RATIO_THRESHOLD = 1.04; // Stricter than horizontal — rejects non-frontal angles
+
 
 // --- STATE MACHINE ---
 const STATE = {
@@ -72,9 +74,12 @@ let currentChallengeIndex = 0;
 let consecutiveValidFrames = 0;
 let baselineNoseRatio = 0;
 let nearNoseRatio = 0;
+let baselineVerticalRatio = 0;
+let nearVerticalRatio = 0;
 let lastValidationTime = 0;
 
 let captureStableFrames = 0; // For near-field stability check
+let readyToCapture = false;
 
 const SPOOF_THRESHOLD_FINAL = 0.65; // Per-sample fail threshold (only flag high-confidence spoofs)
 const SPOOF_EMA_FAIL_THRESHOLD = 0.60; // EMA-based final decision threshold
@@ -163,6 +168,22 @@ function calculateDepthScore(landmarks) {
   return depth;
 }
 
+// Face-plane vertical ratio: face_vector.y (nose_tip - eye_center) / faceWidth
+// The nose tip protrudes toward the camera, so face_vector.z != 0 for a real face.
+// When moving closer, the nose (closer to camera) scales faster than the eye line,
+// making this ratio increase. For a flat photo all landmarks are co-planar so it stays constant.
+function calculateVerticalRatio(landmarks) {
+  const eyeCenterY = (landmarks[33].y + landmarks[263].y) / 2;
+  // face_vector.y = nose_tip.y - eye_center.y (positive = nose below eyes, neutral frontal)
+  const faceVectorY = landmarks[1].y - eyeCenterY;
+  const faceWidth = Math.hypot(
+    landmarks[454].x - landmarks[234].x,
+    landmarks[454].y - landmarks[234].y,
+  );
+  if (faceWidth === 0) return 0;
+  return faceVectorY / faceWidth;
+}
+
 // Nose Width / Face Width Ratio
 function calculateNoseRatio(landmarks) {
   // Face Width: 234 <-> 454
@@ -217,26 +238,6 @@ function calculatePose(landmarks) {
   return { yaw, pitch, roll };
 }
 
-// Vertical Perspective (Forehead vs Chin)
-// 10: Top of Head
-// 168: GLABELLA (Between Eyes)
-// 152: CHIN
-function calculateVerticalPerspective(landmarks) {
-    const top = landmarks[10]; // Forehead/Top
-    const mid = landmarks[1];  // Nose center
-    const chin = landmarks[152]; // Chin center
-
-    // Distance Top -> Mid
-    const upperHeight = Math.hypot(top.x - mid.x, top.y - mid.y);
-    // Distance Mid -> Chin
-    const lowerHeight = Math.hypot(mid.x - chin.x, mid.y - chin.y);
-
-    // Ratio: Upper / Lower
-    // Eye/Nose Level: ~0.8 - 1.2 Depending on face structure
-    // Low Camera (Chin huge): Ratio < 0.6
-    // High Camera (Forehead huge): Ratio > 1.5
-    return upperHeight / lowerHeight;
-}
 
 function calculateYaw(landmarks) {
   return calculatePose(landmarks).yaw;
@@ -398,6 +399,11 @@ function startFlow() {
   captureStableFrames = 0; // MEDIUM FIX: reset between retries
   verdictRequested = false; // HIGH FIX-2: reset guard on retry
   isInferring = false; // HIGH FIX-5: reset guard on retry
+  readyToCapture = false;
+  baselineNoseRatio = 0;
+  nearNoseRatio = 0;
+  baselineVerticalRatio = 0;
+  nearVerticalRatio = 0;
 
   // Reset Spoof Verdict
   spoofVerdict.isReady = false;
@@ -479,7 +485,8 @@ function onResults(results) {
         if (Math.abs(nose.x - 0.5) < 0.1 && Math.abs(nose.y - 0.5) < 0.1) {
           // CAPTURE BASELINE
           baselineNoseRatio = calculateNoseRatio(landmarks);
-          console.log("Baseline Captured:", baselineNoseRatio);
+          baselineVerticalRatio = calculateVerticalRatio(landmarks);
+          console.log("Baseline Captured:", baselineNoseRatio, "V:", baselineVerticalRatio);
           setState(STATE.RECENTER);
         } else {
           instructionText.innerText = "Center your face";
@@ -529,29 +536,6 @@ function onResults(results) {
     case STATE.MOVE_CLOSER:
       // Check Face Width
       if (faceWidth > FACE_WIDTH_NEAR_MIN) {
-        // Robust Camera Perspective Check (Angle Guard for close-up photo)
-        const verticalRatio = calculateVerticalPerspective(landmarks);
-        
-        // Let's enforce the phone is relatively centered vertically
-        // Eye level ratio is ~0.5 to 0.7
-        // Relaxed thresholds for vertical perspective
-        // Neutral eye-level with nose as midpoint is usually ~0.9 - 1.1
-        const MIN_V_RATIO = 0.32; 
-        const MAX_V_RATIO = 1.80; 
-
-        if (verticalRatio < MIN_V_RATIO) {
-             instructionText.innerText = `Hold phone higher (R:${verticalRatio.toFixed(2)})`;
-             broadcastState("HOLD_PHONE_HIGHER", "Hold phone higher", "📱", false);
-             captureStableFrames = 0;
-             break;
-        } else if (verticalRatio > MAX_V_RATIO) {
-             instructionText.innerText = `Hold phone lower (R:${verticalRatio.toFixed(2)})`;
-             broadcastState("HOLD_PHONE_LOWER", "Hold phone lower", "📱", false);
-             captureStableFrames = 0;
-             break;
-        }
-
-        // Check 3D Face Pose to ensure they look straight into the camera
         const pose = calculatePose(landmarks);
         if (Math.abs(pose.yaw) > 15) {
              instructionText.innerText = "Look straight at the camera";
@@ -560,13 +544,14 @@ function onResults(results) {
              break;
         }
         if (pose.pitch > 15) {
-             instructionText.innerText = "Raise your chin";
-             broadcastState("RAISE_CHIN", "Raise your chin", "😐", false);
+             instructionText.innerText = `Raise phone to eye level (P:${pose.pitch.toFixed(1)})`;
+             broadcastState("HOLD_PHONE_HIGHER", "Raise phone to eye level", "📱", false);
              captureStableFrames = 0;
              break;
-        } else if (pose.pitch < -15) {
-             instructionText.innerText = "Lower your chin";
-             broadcastState("LOWER_CHIN", "Lower your chin", "😐", false);
+        }
+        if (pose.pitch < -15) {
+             instructionText.innerText = `Lower phone to eye level (P:${pose.pitch.toFixed(1)})`;
+             broadcastState("HOLD_PHONE_LOWER", "Lower phone to eye level", "📱", false);
              captureStableFrames = 0;
              break;
         }
@@ -582,7 +567,8 @@ function onResults(results) {
         const isCentered = Math.abs(nose.x - 0.5) < 0.15 && Math.abs(nose.y - 0.5) < 0.15;
 
         if (isCentered) {
-          instructionText.innerText = `Hold Still (R:${verticalRatio.toFixed(2)})`;
+          const verticalRatio = calculateVerticalRatio(landmarks);
+          instructionText.innerText = `Hold Still (R:${verticalRatio.toFixed(3)})`;
           feedbackIcon.innerText = "📸";
           broadcastState("HOLD_STILL", "Hold Still", "📸", true);
           captureStableFrames++;
@@ -590,7 +576,8 @@ function onResults(results) {
           // Require 20 frames of stability (~700-1000ms)
           if (captureStableFrames > 20) {
             nearNoseRatio = calculateNoseRatio(landmarks);
-            console.log("Near Captured:", nearNoseRatio);
+            nearVerticalRatio = calculateVerticalRatio(landmarks);
+            console.log("Near Captured:", nearNoseRatio, "V:", nearVerticalRatio);
             setState(STATE.VERIFYING_NEAR);
           }
         } else {
@@ -606,14 +593,19 @@ function onResults(results) {
       break;
 
     case STATE.VERIFYING_NEAR:
-      // PERSPECTIVE CHECK
+      // PERSPECTIVE CHECK — horizontal + vertical gates, both must pass (or AI override)
       const ratioChange = nearNoseRatio / baselineNoseRatio;
-      console.log("Perspective Ratio:", ratioChange);
+      // Vertical: face_vector.y/faceWidth at near vs baseline. Nose protrusion causes this
+      // ratio to increase for a real 3D face; stays constant for a flat photo/screen.
+      const verticalRatioChange = baselineVerticalRatio !== 0
+        ? nearVerticalRatio / baselineVerticalRatio
+        : 1.0;
+      console.log("Perspective Ratio H:", ratioChange, "V:", verticalRatioChange);
 
       // Check Score Override
       const aiOverride = spoofVerdict.averageScore < OVERRIDE_SCORE_THRESHOLD;
 
-      if (ratioChange > PERSPECTIVE_RATIO_THRESHOLD || aiOverride) {
+      if ((ratioChange > PERSPECTIVE_RATIO_THRESHOLD && verticalRatioChange > VERTICAL_PERSPECTIVE_RATIO_THRESHOLD) || aiOverride) {
         if (aiOverride)
           console.log(
             "Perspective Override by AI Score:",
@@ -622,23 +614,26 @@ function onResults(results) {
         // Passed Geometry checks! Move to final Spoof Verification Gate
         setState(STATE.SUCCESS);
       } else {
-        console.warn("Perspective Check Failed. Ratio:", ratioChange);
+        console.warn("Perspective Check Failed. H:", ratioChange, "V:", verticalRatioChange);
         instructionText.innerText = "Verification Failed (2D)";
         setState(STATE.FAIL);
         // MEDIUM FIX: post error reason to RN so it knows why we failed
         window.ReactNativeWebView?.postMessage(
           JSON.stringify({
             type: "error",
-            message: `Perspective Check Failed. Ratio: ${ratioChange.toFixed(2)}`,
+            message: `Perspective Check Failed. H:${ratioChange.toFixed(3)} V:${verticalRatioChange.toFixed(3)}`,
           }),
         );
       }
       // MEDIUM FIX: break immediately — don't let later frame ticks re-run this
       return;
+
+    case STATE.SUCCESS:
+      if (readyToCapture) captureEvidence();
+      break;
   }
 
-  // Stop Loop on Success/Fail to save resources and prevent multiple messages
-  if (currentState === STATE.SUCCESS || currentState === STATE.FAIL) {
+  if (currentState === STATE.FAIL) {
     if (animationId) cancelAnimationFrame(animationId);
     if (renderAnimationId) cancelAnimationFrame(renderAnimationId);
     // HIGH FIX-3: explicitly stop spoof loop so no rogue inference fires after exit
@@ -661,7 +656,7 @@ function waitForSpoofVerdict() {
     if (spoofVerdict.isReady) {
       clearInterval(checker);
       if (spoofVerdict.averageScore < SPOOF_EMA_FAIL_THRESHOLD) {
-        captureEvidence(); // PASS
+        readyToCapture = true;
       } else {
         console.warn(
           "Final Spoof Gate Failed. Score:",
@@ -690,9 +685,9 @@ function waitForSpoofVerdict() {
         spoofVerdict.sampleCount > 0 &&
         spoofVerdict.averageScore < SPOOF_EMA_FAIL_THRESHOLD
       ) {
-        captureEvidence();
+        readyToCapture = true;
       } else if (spoofVerdict.sampleCount === 0) {
-        captureEvidence(); // Degrade gracefully
+        readyToCapture = true;
       } else {
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(
@@ -751,6 +746,13 @@ async function grabFaceCropAndInfer() {
 }
 
 function captureEvidence() {
+  if (!readyToCapture) return;
+  readyToCapture = false;
+
+  if (animationId) cancelAnimationFrame(animationId);
+  if (renderAnimationId) cancelAnimationFrame(renderAnimationId);
+  if (spoofLoopId) { clearInterval(spoofLoopId); spoofLoopId = null; }
+
   // Capture from video feed
   // Scale down if necessary to avoid Bridge timeout (keep under ~2MB)
   const MAX_WIDTH = 800; // Reduced for safety

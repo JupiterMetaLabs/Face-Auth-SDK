@@ -72,29 +72,33 @@ export class FaceRecognitionService {
         const sdkConfig = FaceZkSdk.getConfig();
 
         console.log("[FaceRecognition] Step 1: Resolving detection model from SDK config");
-        detUrl = await resolveModelUri(sdkConfig.models.detection);
+        detUrl = await resolveModelUri(sdkConfig.models.detection, undefined, sdkConfig.allowedDomains);
         console.log("[FaceRecognition] Detection model URI:", detUrl);
 
         console.log("[FaceRecognition] Step 2: Resolving recognition model from SDK config");
-        recUrl = await resolveModelUri(sdkConfig.models.recognition);
+        recUrl = await resolveModelUri(sdkConfig.models.recognition, undefined, sdkConfig.allowedDomains);
         console.log("[FaceRecognition] Recognition model URI:", recUrl);
       } else {
         // ── Bundled fallback (in-repo / monorepo usage) ────────────────────
         // Static require() calls resolved by Metro at build time.
         console.log("[FaceRecognition] Step 1: Loading detection model asset (bundled fallback)");
-        // @ts-ignore
         const detAsset = Asset.fromModule(require("../../assets/models/det_500m.onnx"));
         await detAsset.downloadAsync();
         detUrl = detAsset.localUri || detAsset.uri;
         console.log("[FaceRecognition] Detection model URL:", detUrl);
 
         console.log("[FaceRecognition] Step 2: Loading recognition model asset (bundled fallback)");
-        // @ts-ignore
         const recAsset = Asset.fromModule(require("../../assets/models/w600k_mbf.onnx"));
         await recAsset.downloadAsync();
         recUrl = recAsset.localUri || recAsset.uri;
         console.log("[FaceRecognition] Recognition model URL:", recUrl);
       }
+
+      console.log("[FaceRecognition] Step 2.5: Loading ONNX WASM asset");
+      const wasmAsset = Asset.fromModule(require("../../assets/onnx/ort-wasm-simd.wasm"));
+      await wasmAsset.downloadAsync();
+      const wasmUrl = wasmAsset.localUri || wasmAsset.uri;
+      console.log("[FaceRecognition] ONNX WASM URL:", wasmUrl);
 
       console.log("[FaceRecognition] Step 3: Reading model files as base64");
       // Read models as base64 to send to WebView
@@ -116,9 +120,18 @@ export class FaceRecognitionService {
         "KB",
       );
 
+      const wasmBase64 = await FileSystem.readAsStringAsync(wasmUrl, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      console.log(
+        "[FaceRecognition] ONNX WASM size:",
+        Math.round(wasmBase64.length / 1024),
+        "KB",
+      );
+
       console.log("[FaceRecognition] Step 4: Sending model data to WebView");
       // Send base64 data to WebView - it will convert to Blob URLs
-      const loadPromise = this.bridge.loadModels(detBase64, recBase64);
+      const loadPromise = this.bridge.loadModels(detBase64, recBase64, wasmBase64);
 
       console.log(
         "[FaceRecognition] Step 5: Waiting for WebView to load models...",
@@ -191,12 +204,11 @@ export class FaceRecognitionService {
 
       if (boxes.length > 1) {
         console.warn(
-          "[FaceRecognition] ⚠️ Multiple faces detected:",
-          boxes.length,
+          `[FaceRecognition] ⚠️ ${boxes.length} faces detected — rejecting.`,
         );
         return {
           status: "multiple_faces",
-          message: `Multiple faces detected (${boxes.length}). Please ensure only one person is in the frame.`,
+          message: "Multiple faces detected. Please ensure only one face is visible.",
         };
       }
 
@@ -240,7 +252,7 @@ export class FaceRecognitionService {
         embedding.slice(0, 10),
       );
 
-      // 7. Estimate Pose
+      // 6. Estimate Pose
       const pose = this.estimatePoseFromLandmarks(box.landmarks);
       console.log("[FaceRecognition] Estimated Pose:", pose);
 
@@ -252,10 +264,11 @@ export class FaceRecognitionService {
       };
     } catch (error) {
       console.error("[FaceRecognition] ❌ Error:", error);
-      return {
-        status: "error",
-        message: error instanceof Error ? error.message : "Unknown error",
-      };
+      const message = error instanceof Error ? error.message : "Unknown error";
+      if (message.startsWith("NO_FACE:")) {
+        return { status: "no_face", message: "No usable face detected in the image" };
+      }
+      return { status: "error", message };
     }
   }
 
@@ -265,7 +278,7 @@ export class FaceRecognitionService {
   }
 
   /**
-   * Process a pre-cropped reference image (like Aadhaar) without face detection.
+   * Process a pre-cropped reference image without face detection.
    * This skips bounding box detection and directly extracts the embedding.
    * Use this for small, already-cropped document photos to preserve quality.
    */
@@ -474,7 +487,7 @@ export class FaceRecognitionService {
     );
 
     const boxes: DetectionBox[] = [];
-    const scoreThreshold = 0.25; // Lower threshold for better detection
+    const scoreThreshold = 0.5; // Raised from 0.25 — eliminates spurious detections that cause false "multiple faces"
 
     // Group outputs by type (scores, bboxes, landmarks)
     const scoreTensors: { data: number[]; dims: number[] }[] = [];
@@ -644,7 +657,7 @@ export class FaceRecognitionService {
     const area2 = (box2.x2 - box2.x1) * (box2.y2 - box2.y1);
     const union = area1 + area2 - intersection;
 
-    return intersection / union;
+    return union === 0 ? 0 : intersection / union;
   }
 
   private expandBox(
@@ -672,17 +685,8 @@ export class FaceRecognitionService {
 
   private normalizeEmbedding(embedding: number[]): number[] {
     const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+    if (norm === 0) throw new Error("NO_FACE: model returned a zero-vector — face crop may be empty or invalid");
     return embedding.map((val) => val / norm);
-  }
-
-  // L2 squared distance for face matching
-  l2SquaredDistance(embedding1: number[], embedding2: number[]): number {
-    let sumSquared = 0;
-    for (let i = 0; i < embedding1.length; i++) {
-      const diff = embedding1[i] - embedding2[i];
-      sumSquared += diff * diff;
-    }
-    return sumSquared;
   }
 
   /**
@@ -723,9 +727,6 @@ export class FaceRecognitionService {
 
     // 3. Pitch: Ratio of nose to eyes/mouth center
     const mouthMidY = (leftMouth[1] + rightMouth[1]) / 2;
-    const faceCenterY = (eyeMidX + mouthMidY) / 2; // Rough center
-    // Actually, face-logic uses: (nose.y - midFaceY) * 200
-    // midFaceY = (midEyeY + mouthY) / 2
     const eyeMidY = (leftEye[1] + rightEye[1]) / 2;
     const midFaceY = (eyeMidY + mouthMidY) / 2;
     const faceHeight = Math.hypot(
@@ -733,7 +734,7 @@ export class FaceRecognitionService {
       (leftMouth[0] + rightMouth[0]) / 2 - eyeMidX,
     );
 
-    const pitchRatio = (nose[1] - midFaceY) / faceHeight;
+    const pitchRatio = faceHeight === 0 ? 0 : (nose[1] - midFaceY) / faceHeight;
     const pitch = pitchRatio * 90;
 
     return { yaw, pitch, roll };

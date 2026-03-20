@@ -15,6 +15,35 @@ const ghostFace = document.getElementById("ghost_face");
 const arrowLeft = document.getElementById("arrow_left");
 const arrowRight = document.getElementById("arrow_right");
 
+// --- HEADLESS BRIDGE ---
+function broadcastState(instructionCode, promptText, icon, isFaceLocked = false) {
+  if (window.ReactNativeWebView) {
+    const progressPercent = Math.min(
+      100,
+      Math.max(0, (consecutiveValidFrames / REQUIRED_CONSECUTIVE_FRAMES) * 100)
+    );
+    
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({
+        type: "liveness_state",
+        data: {
+          phase: currentState,
+          instructionCode: instructionCode,
+          promptText: promptText,
+          progressPercent: Math.round(progressPercent),
+          isFaceLocked: isFaceLocked,
+          icon: icon
+        }
+      })
+    );
+  }
+}
+
+// Check if we should initialize in headless mode based on URL params or injected variables
+if (window.HEADLESS_MODE || new URLSearchParams(window.location.search).get('headless') === 'true') {
+  document.body.classList.add('headless-mode');
+}
+
 // --- CONFIG ---
 
 const OVERRIDE_SCORE_THRESHOLD = 0.4; // RELAXED: Trust AI if score is reasonable (< 0.4)
@@ -24,6 +53,8 @@ const FACE_WIDTH_FAR_MIN = 0.15; // Arm's length
 const FACE_WIDTH_FAR_MAX = 0.3;
 const FACE_WIDTH_NEAR_MIN = 0.35; // Close up for perspective check
 const PERSPECTIVE_RATIO_THRESHOLD = 1.02; // Lowered from 1.05 to catch 1.03 cases
+const VERTICAL_PERSPECTIVE_RATIO_THRESHOLD = 1.04; // Stricter than horizontal — rejects non-frontal angles
+
 
 // --- STATE MACHINE ---
 const STATE = {
@@ -43,18 +74,22 @@ let currentChallengeIndex = 0;
 let consecutiveValidFrames = 0;
 let baselineNoseRatio = 0;
 let nearNoseRatio = 0;
+let baselineVerticalRatio = 0;
+let nearVerticalRatio = 0;
 let lastValidationTime = 0;
 
 let captureStableFrames = 0; // For near-field stability check
+let readyToCapture = false;
 
-const SPOOF_THRESHOLD_FINAL = 0.45; // Relaxed threshold for low-end devices
+const SPOOF_THRESHOLD_FINAL = 0.65; // Per-sample fail threshold (only flag high-confidence spoofs)
+const SPOOF_EMA_FAIL_THRESHOLD = 0.60; // EMA-based final decision threshold
 const spoofVerdict = {
   isReady: false,
   averageScore: 1.0, // Start pessimistic
   sampleCount: 0,
-  failureCount: 0, // NEW: Track consecutive/total failures for early exit
+  failureCount: 0, // Track bad samples for early exit
   minSamples: 5, // Need ~2.5 seconds of data minimum
-  alpha: 0.2, // EMA weight for new scores (20% new, 80% history)
+  alpha: 0.15, // EMA weight for new scores (15% new, 85% history — smooth out noise)
 
   add: function (newScore) {
     if (this.sampleCount === 0) {
@@ -73,18 +108,18 @@ const spoofVerdict = {
 
     this.isReady = this.sampleCount >= this.minSamples;
     console.log(
-      `Spoof sample #${this.sampleCount} | New: ${newScore.toFixed(3)} | EMA: ${this.averageScore.toFixed(3)} | Fails: ${this.failureCount}`,
+      `Spoof sample #${this.sampleCount} | New: ${newScore.toFixed(3)} | EMA: ${this.averageScore.toFixed(3)} | Fails: ${this.failureCount}`
     );
 
-    // Early exit if we hit too many bad samples
-    if (this.failureCount >= 8) {
-      console.warn("Liveness: Early exit triggered by 8 failed spoof samples.");
+    // Early exit if we hit too many definitive spoof samples
+    if (this.failureCount >= 14) {
+      console.warn("Liveness: Early exit triggered by 14 failed spoof samples.");
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
           JSON.stringify({
             type: "error",
             message: "Liveness Check Failed (Spoof Detected)",
-          }),
+          })
         );
       }
       setState(STATE.FAIL);
@@ -133,6 +168,22 @@ function calculateDepthScore(landmarks) {
   return depth;
 }
 
+// Face-plane vertical ratio: face_vector.y (nose_tip - eye_center) / faceWidth
+// The nose tip protrudes toward the camera, so face_vector.z != 0 for a real face.
+// When moving closer, the nose (closer to camera) scales faster than the eye line,
+// making this ratio increase. For a flat photo all landmarks are co-planar so it stays constant.
+function calculateVerticalRatio(landmarks) {
+  const eyeCenterY = (landmarks[33].y + landmarks[263].y) / 2;
+  // face_vector.y = nose_tip.y - eye_center.y (positive = nose below eyes, neutral frontal)
+  const faceVectorY = landmarks[1].y - eyeCenterY;
+  const faceWidth = Math.hypot(
+    landmarks[454].x - landmarks[234].x,
+    landmarks[454].y - landmarks[234].y,
+  );
+  if (faceWidth === 0) return 0;
+  return faceVectorY / faceWidth;
+}
+
 // Nose Width / Face Width Ratio
 function calculateNoseRatio(landmarks) {
   // Face Width: 234 <-> 454
@@ -149,12 +200,47 @@ function calculateNoseRatio(landmarks) {
   return noseWidth / faceWidth;
 }
 
-function calculateYaw(landmarks) {
+function calculatePose(landmarks) {
   const nose = landmarks[1];
-  const leftCheek = landmarks[234];
-  const rightCheek = landmarks[454];
-  const mid = (leftCheek.x + rightCheek.x) / 2;
-  return (nose.x - mid) * 100 * 2.5;
+  const leftEye = landmarks[33];
+  const rightEye = landmarks[263];
+  const leftMouth = landmarks[61];
+  const rightMouth = landmarks[291];
+
+  // Midpoints
+  const eyeMidX = (leftEye.x + rightEye.x) / 2;
+  const eyeMidY = (leftEye.y + rightEye.y) / 2;
+  const mouthMidX = (leftMouth.x + rightMouth.x) / 2;
+  const mouthMidY = (leftMouth.y + rightMouth.y) / 2;
+  
+  // Mid-face center (neutral pitch point)
+  const midFaceY = (eyeMidY + mouthMidY) / 2;
+
+  // Scaling factors matching FaceRecognition.ts
+  const dx = rightEye.x - leftEye.x;
+  const dy = rightEye.y - leftEye.y;
+  const eyeDist = Math.hypot(dx, dy);
+  
+  // Vertical face height based on eye-to-mouth distance
+  const faceHeight = Math.hypot(mouthMidY - eyeMidY, mouthMidX - eyeMidX);
+
+  if (eyeDist === 0 || faceHeight === 0) return { yaw: 0, pitch: 0, roll: 0 };
+
+  // Yaw: Nose horizontal deviation from eye center
+  const yaw = ((nose.x - eyeMidX) / eyeDist) * 90;
+  
+  // Pitch: Nose vertical deviation from eye-mouth vertical midpoint
+  const pitch = ((nose.y - midFaceY) / faceHeight) * 90;
+  
+  // Roll: Ear-to-Ear angle (using eyes for consistency with SCRFD logic)
+  const roll = Math.atan2(dy, dx) * (180 / Math.PI);
+
+  return { yaw, pitch, roll };
+}
+
+
+function calculateYaw(landmarks) {
+  return calculatePose(landmarks).yaw;
 }
 
 function calculateEAR(landmarks) {
@@ -190,29 +276,51 @@ function setState(newState) {
   arrowLeft.style.opacity = "0";
   arrowRight.style.opacity = "0";
 
+  if (newState === STATE.CHALLENGE) {
+     const action = activeChallenges[currentChallengeIndex];
+     setChallengeUI(action);
+     ghostFace.className = "ghost-face active";
+     return;
+  }
+
+  let instructionCode = "";
+  let promptText = "";
+  let icon = "";
+  let isLocked = false;
+
   switch (newState) {
     case STATE.SEARCHING_FAR:
-      instructionText.innerText = "Move back to arm's length";
-      feedbackIcon.innerText = "📏";
+      instructionCode = "MOVE_BACK";
+      promptText = "Move back to arm's length";
+      icon = "📏";
+      
+      // Legacy DOM
+      instructionText.innerText = promptText;
+      feedbackIcon.innerText = icon;
       cameraWrapper.className = "camera-circle active";
       progressWrapper.classList.remove("tw-opacity-0");
       break;
 
     case STATE.RECENTER:
-      instructionText.innerText = "Look directly at camera";
-      feedbackIcon.innerText = "😐";
-      ghostFace.className = "ghost-face active";
-      break;
-
-    case STATE.CHALLENGE:
-      const action = activeChallenges[currentChallengeIndex];
-      setChallengeUI(action);
+      instructionCode = "CENTER_FACE";
+      promptText = "Look directly at camera";
+      icon = "😐";
+      isLocked = true;
+      
+      // Legacy DOM
+      instructionText.innerText = promptText;
+      feedbackIcon.innerText = icon;
       ghostFace.className = "ghost-face active";
       break;
 
     case STATE.MOVE_CLOSER:
-      instructionText.innerText = "Now move closer...";
-      feedbackIcon.innerText = "🔍";
+      instructionCode = "MOVE_CLOSER";
+      promptText = "Now move closer...";
+      icon = "🔍";
+      
+      // Legacy DOM
+      instructionText.innerText = promptText;
+      feedbackIcon.innerText = icon;
       cameraWrapper.className = "camera-circle active";
       break;
 
@@ -220,39 +328,66 @@ function setState(newState) {
       // HIGH FIX-2: only ever call waitForSpoofVerdict once
       if (!verdictRequested) {
         verdictRequested = true;
-        instructionText.innerText = "Verifying Liveness...";
-        feedbackIcon.innerText = "🔍";
+        
+        instructionCode = "VERIFYING";
+        promptText = "Verifying Liveness...";
+        icon = "🔍";
+        isLocked = true;
+        
+        // Legacy DOM
+        instructionText.innerText = promptText;
+        feedbackIcon.innerText = icon;
         waitForSpoofVerdict();
       }
       break;
 
     case STATE.FAIL:
-      instructionText.innerText = "Verification Failed";
+      instructionCode = "VERIFICATION_FAILED";
+      promptText = "Verification Failed";
+      icon = "❌";
+      
+      // Legacy DOM
+      instructionText.innerText = promptText;
       instructionText.className = "text-red-500 font-bold mb-8 text-xl";
-      feedbackIcon.innerText = "❌";
+      feedbackIcon.innerText = icon;
       cameraWrapper.className = "camera-circle fail";
       btnRetry.classList.remove("tw-hidden");
       break;
   }
+
+  broadcastState(instructionCode, promptText, icon, isLocked);
 }
 
 function setChallengeUI(action) {
+  let instructionCode = "";
+  let promptText = "";
+  let icon = "";
+
   switch (action) {
     case "blink":
-      instructionText.innerText = "Blink your eyes";
-      feedbackIcon.innerText = "😉";
+      instructionCode = "BLINK";
+      promptText = "Blink your eyes";
+      icon = "😉";
       break;
     case "turnLeft":
-      instructionText.innerText = "Turn head Left";
-      feedbackIcon.innerText = "⬅️";
+      instructionCode = "TURN_LEFT";
+      promptText = "Turn head Left";
+      icon = "⬅️";
       arrowLeft.style.opacity = "1";
       break;
     case "turnRight":
-      instructionText.innerText = "Turn head Right";
-      feedbackIcon.innerText = "➡️";
+      instructionCode = "TURN_RIGHT";
+      promptText = "Turn head Right";
+      icon = "➡️";
       arrowRight.style.opacity = "1";
       break;
   }
+  
+  // Legacy DOM
+  instructionText.innerText = promptText;
+  feedbackIcon.innerText = icon;
+  
+  broadcastState(instructionCode, promptText, icon, true);
 }
 
 function startFlow() {
@@ -264,6 +399,11 @@ function startFlow() {
   captureStableFrames = 0; // MEDIUM FIX: reset between retries
   verdictRequested = false; // HIGH FIX-2: reset guard on retry
   isInferring = false; // HIGH FIX-5: reset guard on retry
+  readyToCapture = false;
+  baselineNoseRatio = 0;
+  nearNoseRatio = 0;
+  baselineVerticalRatio = 0;
+  nearVerticalRatio = 0;
 
   // Reset Spoof Verdict
   spoofVerdict.isReady = false;
@@ -295,6 +435,12 @@ function onResults(results) {
 
   const landmarks = results.multiFaceLandmarks[0];
 
+  // Calculate face width for distance checks
+  const faceWidth = Math.hypot(
+    landmarks[454].x - landmarks[234].x,
+    landmarks[454].y - landmarks[234].y
+  );
+
   // 1. PASSIVE GUARD (Runs ALL THE TIME)
   // Check Depth
   const depthScore = calculateDepthScore(landmarks);
@@ -312,18 +458,6 @@ function onResults(results) {
     consecutiveValidFrames++;
   }
 
-  // Update Progress Bar
-  const uiPct = Math.min(
-    100,
-    (consecutiveValidFrames / REQUIRED_CONSECUTIVE_FRAMES) * 100,
-  );
-  progressBar.style.width = `${uiPct}%`;
-
-  // Calculate Face Width (Normalized 0-1)
-  const faceWidth = Math.abs(landmarks[454].x - landmarks[234].x);
-
-  // --- STATE LOGIC ---
-
   // Block progression if not consistent.
   // HIGH FIX-1: SEARCHING_FAR bypasses this gate — it needs to run
   // even before the depth streak is established so the user can position themselves.
@@ -333,6 +467,10 @@ function onResults(results) {
   ) {
     if (currentState !== STATE.FAIL) {
       feedbackIcon.innerText = "🔒"; // Still building liveness streak
+      
+      // Don't broadcast this micro-state every frame, just let progress bar handle it.
+      // Or we can broadcast the progress update so Native UI loading bars can fill up
+      broadcastState("HOLD_STILL", "Hold still", "🔒", false); 
     }
     return;
   }
@@ -347,15 +485,19 @@ function onResults(results) {
         if (Math.abs(nose.x - 0.5) < 0.1 && Math.abs(nose.y - 0.5) < 0.1) {
           // CAPTURE BASELINE
           baselineNoseRatio = calculateNoseRatio(landmarks);
-          console.log("Baseline Captured:", baselineNoseRatio);
+          baselineVerticalRatio = calculateVerticalRatio(landmarks);
+          console.log("Baseline Captured:", baselineNoseRatio, "V:", baselineVerticalRatio);
           setState(STATE.RECENTER);
         } else {
           instructionText.innerText = "Center your face";
+          broadcastState("CENTER_FACE", "Center your face", "😐", false);
         }
       } else if (faceWidth >= FACE_WIDTH_FAR_MAX) {
         instructionText.innerText = "Move further back";
+        broadcastState("MOVE_BACK", "Move further back", "📏", false);
       } else {
         instructionText.innerText = "Move closer";
+        broadcastState("MOVE_CLOSER", "Move closer", "🔍", false);
       }
       break;
 
@@ -394,41 +536,76 @@ function onResults(results) {
     case STATE.MOVE_CLOSER:
       // Check Face Width
       if (faceWidth > FACE_WIDTH_NEAR_MIN) {
+        const pose = calculatePose(landmarks);
+        if (Math.abs(pose.yaw) > 15) {
+             instructionText.innerText = "Look straight at the camera";
+             broadcastState("LOOK_STRAIGHT", "Look straight at the camera", "😐", false);
+             captureStableFrames = 0;
+             break;
+        }
+        if (pose.pitch > 15) {
+             instructionText.innerText = `Raise phone to eye level (P:${pose.pitch.toFixed(1)})`;
+             broadcastState("HOLD_PHONE_HIGHER", "Raise phone to eye level", "📱", false);
+             captureStableFrames = 0;
+             break;
+        }
+        if (pose.pitch < -15) {
+             instructionText.innerText = `Lower phone to eye level (P:${pose.pitch.toFixed(1)})`;
+             broadcastState("HOLD_PHONE_LOWER", "Lower phone to eye level", "📱", false);
+             captureStableFrames = 0;
+             break;
+        }
+        if (Math.abs(pose.roll) > 10) {
+             instructionText.innerText = "Keep your head straight";
+             broadcastState("HEAD_STRAIGHT", "Keep your head straight", "😐", false);
+             captureStableFrames = 0;
+             break;
+        }
+
         // Check Centering (Nose must be center)
         const nose = landmarks[1];
-        const isCentered =
-          Math.abs(nose.x - 0.5) < 0.15 && Math.abs(nose.y - 0.5) < 0.15;
+        const isCentered = Math.abs(nose.x - 0.5) < 0.15 && Math.abs(nose.y - 0.5) < 0.15;
 
         if (isCentered) {
-          instructionText.innerText = "Hold Still...";
+          const verticalRatio = calculateVerticalRatio(landmarks);
+          instructionText.innerText = `Hold Still (R:${verticalRatio.toFixed(3)})`;
           feedbackIcon.innerText = "📸";
+          broadcastState("HOLD_STILL", "Hold Still", "📸", true);
           captureStableFrames++;
 
           // Require 20 frames of stability (~700-1000ms)
           if (captureStableFrames > 20) {
             nearNoseRatio = calculateNoseRatio(landmarks);
-            console.log("Near Captured:", nearNoseRatio);
+            nearVerticalRatio = calculateVerticalRatio(landmarks);
+            console.log("Near Captured:", nearNoseRatio, "V:", nearVerticalRatio);
             setState(STATE.VERIFYING_NEAR);
           }
         } else {
           instructionText.innerText = "Center your face";
+          broadcastState("CENTER_FACE", "Center your face", "😐", false);
           captureStableFrames = 0;
         }
       } else {
         instructionText.innerText = "Move Closer";
+        broadcastState("MOVE_CLOSER", "Move Closer", "🔍", false);
         captureStableFrames = 0;
       }
       break;
 
     case STATE.VERIFYING_NEAR:
-      // PERSPECTIVE CHECK
+      // PERSPECTIVE CHECK — horizontal + vertical gates, both must pass (or AI override)
       const ratioChange = nearNoseRatio / baselineNoseRatio;
-      console.log("Perspective Ratio:", ratioChange);
+      // Vertical: face_vector.y/faceWidth at near vs baseline. Nose protrusion causes this
+      // ratio to increase for a real 3D face; stays constant for a flat photo/screen.
+      const verticalRatioChange = baselineVerticalRatio !== 0
+        ? nearVerticalRatio / baselineVerticalRatio
+        : 1.0;
+      console.log("Perspective Ratio H:", ratioChange, "V:", verticalRatioChange);
 
       // Check Score Override
       const aiOverride = spoofVerdict.averageScore < OVERRIDE_SCORE_THRESHOLD;
 
-      if (ratioChange > PERSPECTIVE_RATIO_THRESHOLD || aiOverride) {
+      if ((ratioChange > PERSPECTIVE_RATIO_THRESHOLD && verticalRatioChange > VERTICAL_PERSPECTIVE_RATIO_THRESHOLD) || aiOverride) {
         if (aiOverride)
           console.log(
             "Perspective Override by AI Score:",
@@ -437,23 +614,26 @@ function onResults(results) {
         // Passed Geometry checks! Move to final Spoof Verification Gate
         setState(STATE.SUCCESS);
       } else {
-        console.warn("Perspective Check Failed. Ratio:", ratioChange);
+        console.warn("Perspective Check Failed. H:", ratioChange, "V:", verticalRatioChange);
         instructionText.innerText = "Verification Failed (2D)";
         setState(STATE.FAIL);
         // MEDIUM FIX: post error reason to RN so it knows why we failed
         window.ReactNativeWebView?.postMessage(
           JSON.stringify({
             type: "error",
-            message: `Perspective Check Failed. Ratio: ${ratioChange.toFixed(2)}`,
+            message: `Perspective Check Failed. H:${ratioChange.toFixed(3)} V:${verticalRatioChange.toFixed(3)}`,
           }),
         );
       }
       // MEDIUM FIX: break immediately — don't let later frame ticks re-run this
       return;
+
+    case STATE.SUCCESS:
+      if (readyToCapture) captureEvidence();
+      break;
   }
 
-  // Stop Loop on Success/Fail to save resources and prevent multiple messages
-  if (currentState === STATE.SUCCESS || currentState === STATE.FAIL) {
+  if (currentState === STATE.FAIL) {
     if (animationId) cancelAnimationFrame(animationId);
     if (renderAnimationId) cancelAnimationFrame(renderAnimationId);
     // HIGH FIX-3: explicitly stop spoof loop so no rogue inference fires after exit
@@ -475,8 +655,8 @@ function waitForSpoofVerdict() {
 
     if (spoofVerdict.isReady) {
       clearInterval(checker);
-      if (spoofVerdict.averageScore < SPOOF_THRESHOLD_FINAL) {
-        captureEvidence(); // PASS
+      if (spoofVerdict.averageScore < SPOOF_EMA_FAIL_THRESHOLD) {
+        readyToCapture = true;
       } else {
         console.warn(
           "Final Spoof Gate Failed. Score:",
@@ -503,11 +683,11 @@ function waitForSpoofVerdict() {
       // If model never loaded or never fired, pass with warning.
       if (
         spoofVerdict.sampleCount > 0 &&
-        spoofVerdict.averageScore < SPOOF_THRESHOLD_FINAL
+        spoofVerdict.averageScore < SPOOF_EMA_FAIL_THRESHOLD
       ) {
-        captureEvidence();
+        readyToCapture = true;
       } else if (spoofVerdict.sampleCount === 0) {
-        captureEvidence(); // Degrade gracefully
+        readyToCapture = true;
       } else {
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(
@@ -566,6 +746,13 @@ async function grabFaceCropAndInfer() {
 }
 
 function captureEvidence() {
+  if (!readyToCapture) return;
+  readyToCapture = false;
+
+  if (animationId) cancelAnimationFrame(animationId);
+  if (renderAnimationId) cancelAnimationFrame(renderAnimationId);
+  if (spoofLoopId) { clearInterval(spoofLoopId); spoofLoopId = null; }
+
   // Capture from video feed
   // Scale down if necessary to avoid Bridge timeout (keep under ~2MB)
   const MAX_WIDTH = 800; // Reduced for safety
@@ -609,18 +796,70 @@ function captureEvidence() {
 }
 
 // --- INIT ---
-const faceMesh = new FaceMesh({
-  locateFile: (file) =>
-    `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-});
-// MEDIUM FIX: maxNumFaces 1 (was 2) — we block on >1 anyway, 1 saves CPU
-faceMesh.setOptions({
-  maxNumFaces: 1,
-  refineLandmarks: false,
-  minDetectionConfidence: 0.4,
-  minTrackingConfidence: 0.4,
-});
-faceMesh.onResults(onResults);
+// Convert Base64 payload back to Uint8Array for MediaPipe Virtual Filesystem
+function base64ToUint8Array(base64) {
+  const binaryString = window.atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+const locateFileOverride = (file) => {
+  // If the assets have been injected over the RN bridge, we intercept the load
+  if (file.endsWith("face_mesh_solution_simd_wasm_bin.wasm") && window.MP_WASM_SIMD_BASE64) {
+    return "data:application/wasm;base64," + window.MP_WASM_SIMD_BASE64;
+  }
+  if (file.endsWith("face_mesh_solution_wasm_bin.wasm") && window.MP_WASM_BASE64) {
+    return "data:application/wasm;base64," + window.MP_WASM_BASE64;
+  }
+  if (file.endsWith("face_mesh_solution_packed_assets.data") && window.MP_DATA_BASE64) {
+    // Data file requires a custom blob intercept since it's loaded via XHR/fetch arrayBuffer
+    return "data:application/octet-stream;base64," + window.MP_DATA_BASE64;
+  }
+  return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+};
+
+let faceMesh = null;
+
+window.initializeLiveness = async function() {
+  if (faceMesh) return; // Prevent double init
+  
+  console.log("Local Config:", {
+    hasSimd: !!window.MP_WASM_SIMD_BASE64,
+    hasWasm: !!window.MP_WASM_BASE64,
+    hasData: !!window.MP_DATA_BASE64
+  });
+
+  try {
+    faceMesh = new FaceMesh({
+      locateFile: locateFileOverride,
+    });
+    // MEDIUM FIX: maxNumFaces 1 (was 2) — we block on >1 anyway, 1 saves CPU
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: false,
+      minDetectionConfidence: 0.4,
+      minTrackingConfidence: 0.4,
+    });
+    faceMesh.onResults(onResults);
+    
+    console.log("[Liveness] Initializing FaceMesh WASM engine...");
+    await faceMesh.initialize();
+    console.log("[Liveness] FaceMesh initialized locally!");
+    
+    startFlow();
+    startCamera();
+  } catch (e) {
+    console.error("[Liveness] Failed to initialize FaceMesh:", e);
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: "error", message: "FaceMesh Initialization Error: " + e.message
+      }));
+    }
+  }
+};
 
 // --- CAMERA HANDLING ---
 let currentStream = null;
@@ -712,7 +951,20 @@ async function processFrame() {
   lastProcessedTime = now;
 
   if (!videoElement.paused && !videoElement.ended) {
-    await faceMesh.send({ image: videoElement });
+    try {
+      if (!faceMesh) {
+         console.warn("[Liveness] faceMesh is null in processFrame");
+         return;
+      }
+      await faceMesh.send({ image: videoElement });
+    } catch (e) {
+      console.error("[Liveness] FaceMesh send error:", e);
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: "error", message: "FaceMesh Error: " + e.message
+        }));
+      }
+    }
   }
 }
 
@@ -746,5 +998,6 @@ window.__onModelLoaded = function () {
 };
 
 // Start
-startFlow();
-startCamera();
+// Wait for React Native to call window.initializeLiveness() after injecting models
+// startFlow();
+// startCamera();

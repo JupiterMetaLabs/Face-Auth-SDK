@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type {
   ReferenceTemplate,
-  SdkConfig,
+  FaceZkRuntimeConfig,
   VerificationOutcome,
   FaceEmbeddingProvider,
 } from "@jmdt/face-zk-sdk/react-native";
@@ -11,7 +11,7 @@ import { FaceZkVerificationFlow } from "@jmdt/face-zk-sdk/react-native";
 import { getExampleVerificationOptions } from "../src/sdkRuntime/faceZkSdkExample";
 
 interface ExampleRuntime {
-  sdkConfig: SdkConfig;
+  sdkConfig: FaceZkRuntimeConfig;
   embeddingProvider: FaceEmbeddingProvider;
   isTestMode: boolean;
 }

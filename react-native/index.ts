@@ -13,9 +13,47 @@
 
 import { FaceZkSdk as _FaceZkSdk } from "../FaceZkSdk";
 import { clearModelCache as _clearModelCache } from "./utils/resolveModelUri";
+import {
+  initializeSdkDependencies as _initializeSdkDependencies,
+  getDefaultSdkDependencies as _getDefaultSdkDependencies,
+  type SdkDependencies,
+} from "./dependencies";
+import type { FaceZkConfig } from "../config/types";
 
-export { FaceZkSdk } from "../FaceZkSdk";
-export { clearModelCache } from "./utils/resolveModelUri";
+// FaceZkSdk class is intentionally NOT re-exported here.
+// React Native apps should use initializeSdk() and resetSdk() below,
+// which wire up RN-specific dependencies (file system, model cache) before
+// calling FaceZkSdk.init(). Bypassing that step causes model loading to fail.
+export { clearModelCache, resolveModelUri } from "./utils/resolveModelUri";
+export {
+  modelInitialisationChecks,
+  type ModelReadinessResult,
+  type ModelKey,
+} from "./utils/modelInitialisationChecks";
+
+/**
+ * Bootstraps the Face+ZK SDK and prepares local dependency injection within a React Native application.
+ *
+ * You must call this function at the very root of your application lifecycle (e.g., in `App.tsx` or `index.js`) before attempting to mount any SDK UI flows or headless hooks.
+ *
+ * **Initialization Context:** Unlike non-React contexts, React Native needs explicit dependency injection to handle native File System access and WebView bridging. This unified setup replaces the deprecated two-step initialization process and registers the `defaultSdkDependencies` globally.
+ *
+ * @param {FaceZkConfig} config - The global SDK configuration, including model CDN URLs and threshold limits.
+ * @param {SdkDependencies} [deps] - Optional override to inject custom Platform Adapters (e.g., custom WebViews for debugging).
+ * @returns {Promise<void>} Resolves when the core singleton is ready.
+ * 
+ * @example
+ * await initializeSdk({
+ *   models: { cdnBaseUrl: 'https://cdn.mycompany.com/zk' }
+ * });
+ */
+export async function initializeSdk(
+  config: FaceZkConfig,
+  deps: SdkDependencies = _getDefaultSdkDependencies(),
+): Promise<void> {
+  _initializeSdkDependencies(deps);
+  await _FaceZkSdk.init(config);
+}
 
 /**
  * Reset the SDK and clear any cached model files.
@@ -60,7 +98,6 @@ export type {
   SdkErrorCode,
   SdkError,
   VerificationOutcome,
-  MatchingConfig,
   LivenessConfig,
   ZkProofEngine,
   ZkConfig,
@@ -68,7 +105,7 @@ export type {
   ReferenceStorageRecord,
   ProofStorageRecord,
   SdkLogger,
-  SdkConfig,
+  FaceZkRuntimeConfig,
   VerificationOptions,
   EnrollmentOptions,
   ZkProofOptions,
@@ -127,10 +164,12 @@ export {
 
 // Liveness
 export {
-  createLivenessProvider,
-  defaultLivenessProvider,
   createLivenessResultFromWebView,
+  createWebViewLivenessProvider,
+  createLivenessProvider,
+  createZkFaceAuthLivenessProvider,
   type LivenessProviderConfig,
+  type ZkFaceAuthLivenessService,
 } from "./adapters/livenessProvider";
 
 // Image Data
@@ -167,6 +206,7 @@ export {
 export {
   verifyOnly,
   verifyWithProof,
+  type VerifyCallOptions,
 } from "../core/verification-core";
 
 export {

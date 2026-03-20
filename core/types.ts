@@ -138,12 +138,6 @@ export interface FaceMatchResult {
 
   /** Derived match percentage (0–100, higher = better match). */
   matchPercentage: number;
-
-  /** Configured threshold that was used for this decision. */
-  threshold: number;
-
-  /** True if distance <= threshold. */
-  passed: boolean;
 }
 
 /** Zero-knowledge proof summary */
@@ -180,6 +174,17 @@ export type SdkErrorCode =
   | "LIVENESS_FAILED"
   | "CANCELLED";
 
+const SDK_ERROR_CODES: ReadonlySet<SdkErrorCode> = new Set([
+  "NO_FACE",
+  "MULTIPLE_FACES",
+  "LOW_MATCH",
+  "SYSTEM_ERROR",
+  "ZK_ERROR",
+  "NO_REFERENCE",
+  "LIVENESS_FAILED",
+  "CANCELLED",
+]);
+
 /** Structured error information */
 export interface SdkError {
   code: SdkErrorCode;
@@ -191,6 +196,18 @@ export interface SdkError {
    * - underlying exception message (sanitized)
    */
   details?: Record<string, unknown>;
+}
+
+/** Type guard to check if an unknown value is an SdkError */
+export function isSdkError(error: unknown): error is SdkError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    "message" in error &&
+    typeof (error as Record<string, unknown>).message === "string" &&
+    SDK_ERROR_CODES.has((error as Record<string, unknown>).code as SdkErrorCode)
+  );
 }
 
 /** Complete verification outcome */
@@ -229,18 +246,10 @@ export interface VerificationOutcome {
 // 3.1 Matching & Liveness Config
 // ----------------------------------------------------------------------------
 
-/** Matching configuration */
-export interface MatchingConfig {
-  /** L2-squared distance threshold; smaller is stricter. */
-  threshold: number;
-}
-
 /** Liveness configuration */
 export interface LivenessConfig {
   /** Enable or disable liveness/anti-spoof checks in this flow. */
   enabled: boolean;
-  /** Optional minimum liveness score to consider `passed: true`. */
-  minScore?: number;
 }
 
 // ----------------------------------------------------------------------------
@@ -252,7 +261,6 @@ export interface ZkProofEngine {
   generateProof(
     referenceEmbedding: FloatVector,
     liveEmbedding: FloatVector,
-    threshold: number,
     nonce: number,
   ): Promise<{
     proof: string;
@@ -325,19 +333,17 @@ export interface SdkLogger {
 // 3.4 Global SDK Config + Per-Call Overrides
 // ----------------------------------------------------------------------------
 
-/** Global SDK configuration */
-export interface SdkConfig extends SdkLogger {
-  matching: MatchingConfig;
+/** Global runtime configuration — controls liveness, ZK, storage, and logging for all SDK operations. */
+export interface FaceZkRuntimeConfig extends SdkLogger {
   liveness?: LivenessConfig;
   zk?: ZkConfig;
   storage?: StorageAdapter;
 }
 
 /**
- * Per-call override; shallow-partial of SdkConfig.
+ * Per-call override; shallow-partial of FaceZkRuntimeConfig.
  */
 export interface VerificationOptions {
-  matching?: Partial<MatchingConfig>;
   liveness?: Partial<LivenessConfig>;
   zk?: Partial<Pick<ZkConfig, "requiredForSuccess">>;
 
@@ -348,8 +354,8 @@ export interface VerificationOptions {
   includeImageData?: {
     base64?: boolean;
     sizeKb?: boolean;
-    /** @reserved Not yet implemented — setting this has no effect. */
-    qualityScore?: never;
+    /** Optional image quality score (0–1, higher = better). */
+    qualityScore?: number;
   };
 }
 
@@ -371,8 +377,7 @@ export interface EnrollmentOptions {
 
 /** Options for ZK-only proof generation */
 export interface ZkProofOptions {
-  threshold: number; // must match the threshold used for matching
-  nonce?: number;    // optional; SDK generates if absent
+  nonce?: number; // optional; SDK generates if absent
 }
 
 // ============================================================================

@@ -23,7 +23,7 @@ import {
 
 import type {
   ReferenceTemplate,
-  SdkConfig,
+  FaceZkRuntimeConfig,
   UiConfig,
   SdkError,
   EnrollmentOptions,
@@ -41,7 +41,7 @@ import { FaceZkSdk } from "../../FaceZkSdk";
  */
 export interface ReferenceEnrollmentFlowProps {
   /** SDK configuration */
-  sdkConfig: SdkConfig;
+  sdkConfig: FaceZkRuntimeConfig;
 
   /** Face embedding provider */
   embeddingProvider: FaceEmbeddingProvider;
@@ -77,22 +77,24 @@ type EnrollmentStage =
   | "ERROR";
 
 /**
- * Reference Enrollment Flow Component
+ * A drop-in React Native UI component orchestrating face capture and template enrollment.
  *
- * Usage:
- * ```tsx
+ * This component guides a user through positioning their face correctly using the `FacePoseGuidanceWebView`, captures an optimal frame, extracts their facial embedding, and saves the resulting `ReferenceTemplate` directly to local storage (if `persist: true` is provided).
+ *
+ * **Context:** Once a reference is created via this UI, its `referenceId` is the key needed by `FaceZkVerificationFlow` to authenticate the user in the future.
+ *
+ * @param {ReferenceEnrollmentFlowProps} props - Configuration and dependencies.
+ * @returns {React.FC} An encapsulated camera flow for enrollment.
+ * 
+ * @example
  * <ReferenceEnrollmentFlow
- *   sdkConfig={sdkConfig}
- *   embeddingProvider={defaultFaceEmbeddingProvider}
- *   enrollmentOptions={{ persist: true, metadata: { userId: "user_123" } }}
+ *   sdkConfig={config}
+ *   embeddingProvider={provider}
+ *   enrollmentOptions={{ persist: true, metadata: { role: "admin" } }}
  *   onComplete={(template) => {
- *     console.log("Enrolled:", template.referenceId);
- *   }}
- *   onCancel={() => {
- *     console.log("Cancelled");
+ *     myBackend.saveRefId(template.referenceId);
  *   }}
  * />
- * ```
  */
 export const ReferenceEnrollmentFlow: React.FC<
   ReferenceEnrollmentFlowProps
@@ -119,24 +121,6 @@ export const ReferenceEnrollmentFlow: React.FC<
   const deps = getSdkDependencies();
   const { OnnxRuntimeWebView, FacePoseGuidanceWebView, faceRecognitionService } = deps;
 
-  // Guard: SDK must be initialized before rendering (after all hooks)
-  if (!FaceZkSdk.isInitialized()) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
-        <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
-          FaceZkSdk is not initialized.{"\n"}Call FaceZkSdk.init() before rendering this component.
-        </Text>
-      </View>
-    );
-  }
-
-  // Initialize bridge for face recognition
-  const handleBridgeReady = (bridge: any) => {
-    console.log("[ReferenceEnrollmentFlow] ONNX bridge ready");
-    faceRecognitionService.setBridge(bridge);
-    setBridgeReady(true);
-  };
-
   // Load models when bridge is ready
   useEffect(() => {
     if (bridgeReady && faceRecognitionService.isBridgeSet()) {
@@ -147,7 +131,7 @@ export const ReferenceEnrollmentFlow: React.FC<
           console.log("[ReferenceEnrollmentFlow] Models loaded, ready to capture");
           setStage("CAPTURING");
         })
-        .catch((err: any) => {
+        .catch((err: unknown) => {
           console.error("[ReferenceEnrollmentFlow] Model loading failed:", err);
           const sdkError: SdkError = {
             code: "SYSTEM_ERROR",
@@ -160,6 +144,24 @@ export const ReferenceEnrollmentFlow: React.FC<
         });
     }
   }, [bridgeReady, faceRecognitionService, onError]);
+
+  // Guard: SDK must be initialized before rendering
+  if (!FaceZkSdk.isInitialized()) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
+        <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
+          FaceZkSdk is not initialized.{"\n"}Call initializeSdk() from '@jmdt/face-zk-sdk/react-native' before rendering this component.
+        </Text>
+      </View>
+    );
+  }
+
+  // Initialize bridge for face recognition
+  const handleBridgeReady = (bridge: unknown) => {
+    console.log("[ReferenceEnrollmentFlow] ONNX bridge ready");
+    faceRecognitionService.setBridge(bridge);
+    setBridgeReady(true);
+  };
 
   // Handle image capture from pose guidance
   const handleCaptureSuccess = async (imageUri: string) => {
@@ -293,8 +295,7 @@ export const ReferenceEnrollmentFlow: React.FC<
       {/* Success State */}
       {stage === "SUCCESS" && (
         ui.renderSuccess ? (
-          // renderSuccess receives a minimal outcome shape for enrollment
-          ui.renderSuccess({ success: true, score: 100 } as any) as React.ReactElement
+          ui.renderSuccess({ success: true, score: 100 }) as React.ReactElement
         ) : (
           <View style={[styles.resultContainer, { backgroundColor: theme.colors.background }]}>
             <Text style={[styles.successIcon, { color: theme.colors.primary }]}>✓</Text>

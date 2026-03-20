@@ -11,15 +11,25 @@ import type { FloatVector, FaceMatchResult } from "./types";
 
 /**
  * Calculates the L2 squared distance between two vectors.
- * More efficient for mobile devices - no division, no normalization checks.
+ * More efficient for mobile devices as it skips square root operations and bounds checking.
  *
- * @param a First vector (face embedding)
- * @param b Second vector (face embedding)
- * @returns L2² distance. Lower is better. 0 = identical vectors.
+ * **Crypto/ZK Context:** The raw distance computed here provides UI feedback, but the actual cryptographic proof relies on the unaltered feature vectors.
+ *
+ * @param {FloatVector} a - First facial embedding vector.
+ * @param {FloatVector} b - Second facial embedding vector.
+ * @returns {number} The L2² distance. Lower is better. 0 = identical vectors.
+ * @throws {Error} Throws if vectors are empty or mismatched in length.
+ * 
+ * @example
+ * const dist = l2SquaredDistance(liveEmbedding, refEmbedding);
+ * console.log(`Distance: ${dist}`);
  */
 export function l2SquaredDistance(a: FloatVector, b: FloatVector): number {
-  if (a.length !== b.length || a.length === 0) {
-    return Number.MAX_VALUE; // Return max distance for invalid inputs
+  if (a.length === 0 || b.length === 0) {
+    throw new Error("l2SquaredDistance: embeddings cannot be empty");
+  }
+  if (a.length !== b.length) {
+    throw new Error(`l2SquaredDistance: embedding length mismatch (${a.length} vs ${b.length})`);
   }
 
   let sumSquared = 0;
@@ -45,43 +55,48 @@ export function l2SquaredDistance(a: FloatVector, b: FloatVector): number {
 }
 
 /**
- * Converts L2² distance to a percentage match score for UI display.
+ * Converts L2² distance to a human-readable percentage match score.
  *
- * @param l2Squared The L2 squared distance
- * @returns Match percentage (0-100). Higher is better.
+ * Precondition: `l2Squared` is the scalar output of `l2SquaredDistance` applied to
+ * two normalized embeddings, which places it in [0, 4]. 
+ *
+ * @param {number} l2Squared - The L2 squared distance (scalar).
+ * @returns {number} Match percentage (0-100). Higher is better.
+ *
+ * @example
+ * const percentage = l2SquaredToPercentage(1.2);
+ * console.log(`Match: ${percentage}%`); // Extrapolates onto a 0-100 curve
  */
 export function l2SquaredToPercentage(l2Squared: number): number {
-  // User assumption: L2 distance ranges from 0 to 2.
-  // L2 Squared ranges from 0 to 4 (for normalized vectors).
-  // We use 2.0 as the denominator for a reasonable scaling that matches user intuition for "distance"
+  // For normalized vectors L2² ∈ [0, 4]; 0 = identical, 4 = maximally different.
+  // ((2 - d) / 2) × 100 maps that range linearly to 100%…0%.
   const matchPercentage = ((2.0 - l2Squared) / 2.0) * 100;
   return Math.max(0, Math.min(100, matchPercentage)); // Clamp to 0-100
 }
 
 /**
- * Computes a complete face match result from two embeddings and a threshold.
+ * Computes a face match result from two embeddings for informational use.
  *
- * This is the primary matching function used by verification flows.
- * It computes the L2² distance, converts to percentage, and determines pass/fail.
+ * **Important:** This function no longer returns a boolean pass/fail flag. 
+ * Pass/fail is determined by the ZK engine (which explicitly owns the threshold), not by this function.
  *
- * @param referenceEmbedding Reference face embedding
- * @param liveEmbedding Live face embedding
- * @param threshold L2² distance threshold (distance <= threshold means match)
- * @returns Complete match result with distance, percentage, threshold, and pass/fail
+ * @param {FloatVector} referenceEmbedding - Reference face embedding.
+ * @param {FloatVector} liveEmbedding - Live face embedding.
+ * @returns {FaceMatchResult} Match result containing raw distance and percentage.
+ *
+ * @example
+ * const result = computeFaceMatchResult(refEmbed, liveEmbed);
+ * console.log(`Match confidence: ${result.matchPercentage}%`);
  */
 export function computeFaceMatchResult(
   referenceEmbedding: FloatVector,
   liveEmbedding: FloatVector,
-  threshold: number,
 ): FaceMatchResult {
   const distance = l2SquaredDistance(referenceEmbedding, liveEmbedding);
   const matchPercentage = l2SquaredToPercentage(distance);
-  const passed = distance <= threshold;
 
   return {
     distance,
     matchPercentage,
-    threshold,
-    passed,
   };
 }

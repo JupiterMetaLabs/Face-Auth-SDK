@@ -1,5 +1,4 @@
 import { Asset } from 'expo-asset';
-// @ts-ignore - Usage of legacy API as per Expo SDK 54 migration guide
 import * as FileSystem from 'expo-file-system/legacy';
 import { useEffect, useState } from 'react';
 import { FaceZkSdk } from '../../FaceZkSdk';
@@ -37,7 +36,7 @@ export function useWasmLoader() {
                     const sdkConfig = FaceZkSdk.getConfig();
 
                     if (sdkConfig.models.wasm) {
-                        wasmLocalUri = await resolveModelUri(sdkConfig.models.wasm);
+                        wasmLocalUri = await resolveModelUri(sdkConfig.models.wasm, undefined, sdkConfig.allowedDomains);
                     } else {
                         // No wasm override – use bundled fallback
                         const wasmAsset = Asset.fromModule(require('../../assets/wasm/zk_face_wasm_bg.wasm'));
@@ -47,7 +46,7 @@ export function useWasmLoader() {
                     }
 
                     if (sdkConfig.models.zkWorkerHtml) {
-                        workerLocalUri = await resolveModelUri(sdkConfig.models.zkWorkerHtml);
+                        workerLocalUri = await resolveModelUri(sdkConfig.models.zkWorkerHtml, undefined, sdkConfig.allowedDomains);
                     } else {
                         const workerAsset = Asset.fromModule(require('../../assets/zk-worker.html'));
                         await workerAsset.downloadAsync();

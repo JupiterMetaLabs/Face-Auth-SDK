@@ -26,6 +26,7 @@ export type InstructionCode =
   | "MOVE_CLOSER"
   | "HOLD_PHONE_HIGHER"
   | "HOLD_PHONE_LOWER"
+  | "HEAD_STRAIGHT"
   | "HOLD_STILL"
   | "VERIFYING"
   | "VERIFICATION_FAILED";
@@ -75,21 +76,17 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
       setLoadError(null);
 
       // 1. Load HTML and JS files
-      // @ts-ignore
       console.log("[ZkFaceAuth] Resolving assets...");
       const htmlAsset = Asset.fromModule(
         require("../../assets/liveness/index.html"),
       );
-      // @ts-ignore
       const antispoofJsAsset = Asset.fromModule(
         require("../../assets/liveness/antispoof.js.txt"),
       );
-      // @ts-ignore
       const livenessJsAsset = Asset.fromModule(
         require("../../assets/liveness/liveness.js.txt"),
       );
       // Load MediaPipe Local Assets
-      // @ts-ignore
       const mpFaceMeshJsAsset = Asset.fromModule(
         require("../../assets/mediapipe/face_mesh.js.txt"),
       );
@@ -166,7 +163,6 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
     try {
       console.log("[ZkFaceAuth] Injecting model...");
       // ... (model injection logic remains same)
-      // @ts-ignore
       const modelAsset = Asset.fromModule(
         require("../../assets/models/antispoof.onnx"),
       );
@@ -194,15 +190,12 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
 
       // Read MediaPipe WASM bindings (Base64)
       console.log("[ZkFaceAuth] Reading MediaPipe binaries...");
-      // @ts-ignore
       const mpWasmSimdAsset = Asset.fromModule(
         require("../../assets/mediapipe/face_mesh_solution_simd_wasm_bin.wasm"),
       );
-      // @ts-ignore
       const mpWasmAsset = Asset.fromModule(
         require("../../assets/mediapipe/face_mesh_solution_wasm_bin.wasm"),
       );
-      // @ts-ignore
       const mpDataAsset = Asset.fromModule(
         require("../../assets/mediapipe/face_mesh_solution_packed_assets.data"),
       );
@@ -228,17 +221,17 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
 
       const injectScript = `
                 // Inject MediaPipe Files globally to intercept locateFile
-                window.MP_WASM_SIMD_BASE64 = "${mpWasmSimdBase64}";
-                window.MP_WASM_BASE64 = "${mpWasmBase64}";
-                window.MP_DATA_BASE64 = "${mpDataBase64}";
+                window.MP_WASM_SIMD_BASE64 = ${JSON.stringify(mpWasmSimdBase64)};
+                window.MP_WASM_BASE64 = ${JSON.stringify(mpWasmBase64)};
+                window.MP_DATA_BASE64 = ${JSON.stringify(mpDataBase64)};
                 console.log("[ZkFaceAuth] MediaPipe injected");
 
                 if (window.loadAntispoofModel) {
-                    window.loadAntispoofModel("${modelBase64}");
+                    window.loadAntispoofModel(${JSON.stringify(modelBase64)});
                 } else {
                     console.error('loadAntispoofModel not found');
                 }
-                
+
                 // Set target pose if available
                 if (${JSON.stringify(manualTargetPose)}) {
                     window.TARGET_POSE = ${JSON.stringify(manualTargetPose)};
@@ -246,8 +239,8 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
                 }
 
                 // Set Reference Image if available
-                if ("${referenceBase64}") {
-                    window.REFERENCE_IMAGE_URI = "${referenceBase64}";
+                if (${JSON.stringify(referenceBase64)}) {
+                    window.REFERENCE_IMAGE_URI = ${JSON.stringify(referenceBase64)};
                     console.log('Reference Image Injected');
                 }
 
@@ -368,6 +361,8 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
     <View style={styles.container}>
       <WebView
         ref={webViewRef}
+        // CRITICAL: baseUrl must be https://localhost/ to provide a Secure Context for WebAssembly/ONNX.
+        // It does NOT make actual network requests, but prevents the WebView from throwing security errors.
         source={{ html: htmlContent, baseUrl: "https://localhost/" }}
         style={styles.webview}
         javaScriptEnabled={true}
@@ -378,10 +373,8 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
         bounces={false}
         overScrollMode="never"
         scalesPageToFit={true}
-        allowFileAccess={true}
-        allowUniversalAccessFromFileURLs={true}
         onMessage={handleMessage}
-        // @ts-ignore
+        // @ts-expect-error — onPermissionRequest is an Android WebView prop not in react-native-webview types
         onPermissionRequest={(event) => {
           const { resources } = event.nativeEvent;
           if (resources.includes("camera")) {

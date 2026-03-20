@@ -2,7 +2,10 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",
-    "lib": ["ESNext", "DOM"],
+    "lib": [
+      "ESNext",
+      "DOM"
+    ],
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -14,8 +17,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "jsx": "react-native",
-    "composite": true,
-    "emitDeclarationOnly": true
+    "composite": true
   },
   "include": [
     "index.ts",
@@ -24,7 +26,8 @@
     "config/**/*.ts",
     "react-native/**/*.ts",
     "react-native/**/*.tsx",
-    "storage/**/*.ts"
+    "storage/**/*.ts",
+    "assets/onnx/**/*.ts"
   ],
   "exclude": [
     "node_modules",

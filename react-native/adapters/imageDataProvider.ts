@@ -69,6 +69,26 @@ export function createDefaultImageDataProvider(): ImageDataProvider {
         );
       }
     },
+
+    async analyzeQuality(imageUri: string): Promise<number> {
+      // Quality is estimated from file size — a practical proxy for face image
+      // fidelity without requiring additional image-processing dependencies.
+      // Thresholds are calibrated for compressed JPEG face captures:
+      //   < 5 KB  → heavily compressed / thumbnail → score near 0
+      //   ≥ 200 KB → high-detail capture            → score near 1
+      const MIN_BYTES = 5_000;
+      const MAX_BYTES = 200_000;
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(imageUri);
+        if (!fileInfo.exists || !("size" in fileInfo) || typeof fileInfo.size !== "number") {
+          return 0;
+        }
+        const clamped = Math.max(MIN_BYTES, Math.min(MAX_BYTES, fileInfo.size));
+        return Math.round(((clamped - MIN_BYTES) / (MAX_BYTES - MIN_BYTES)) * 100) / 100;
+      } catch {
+        return 0;
+      }
+    },
   };
 }
 

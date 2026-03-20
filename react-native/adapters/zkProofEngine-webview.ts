@@ -31,7 +31,6 @@ export function createZkProofEngineWebView(
     async generateProof(
       referenceEmbedding: number[],
       liveEmbedding: number[],
-      threshold: number,
       nonce: number,
     ): Promise<{ proof: string; publicInputs: string[] }> {
       // Check if bridge is ready
@@ -47,7 +46,6 @@ export function createZkProofEngineWebView(
       const result = await bridge.generateProof(
         referenceEmbedding,
         liveEmbedding,
-        threshold,
         nonce,
       );
 

@@ -1,4 +1,4 @@
-import type { SdkConfig, VerificationOptions, SdkLogger } from "@jmdt/face-zk-sdk/react-native";
+import type { FaceZkRuntimeConfig, VerificationOptions, SdkLogger } from "@jmdt/face-zk-sdk/react-native";
 import {
   defaultStorageAdapter,
   createFaceEmbeddingProvider,
@@ -10,18 +10,12 @@ type LogEvent = Parameters<NonNullable<SdkLogger["onLog"]>>[0];
 /**
  * Example SDK configuration tuned for demo usage.
  *
- * This config is intentionally permissive (fairly high match threshold,
- * liveness enabled) and uses the default storage adapter bundled with the SDK.
+ * Uses liveness checks and the default storage adapter bundled with the SDK.
+ * Match pass/fail is determined by the ZK engine — no threshold is configured here.
  */
-export const exampleSdkConfig: SdkConfig = {
-  matching: {
-    // NOTE: This is the L2-squared distance threshold, not a percentage.
-    // The default here is chosen to be moderately strict for demos.
-    threshold: 0.85,
-  },
+export const exampleFaceZkRuntimeConfig: FaceZkRuntimeConfig = {
   liveness: {
     enabled: true,
-    minScore: 0.5,
   },
   // In this example we assume ZK is enabled at the SDK level and that the
   // host app wires the ZkProofEngine via sdk/core/verification-core helpers.
@@ -49,7 +43,6 @@ export const exampleSdkConfig: SdkConfig = {
  */
 export function getExampleVerificationOptions(isTestMode: boolean): VerificationOptions {
   const base: VerificationOptions = {
-    matching: {},
     liveness: {},
     zk: {
       requiredForSuccess: false,
@@ -65,7 +58,6 @@ export function getExampleVerificationOptions(isTestMode: boolean): Verification
       ...base,
       liveness: {
         enabled: true,
-        minScore: 0.2,
       },
     };
   }
@@ -74,7 +66,6 @@ export function getExampleVerificationOptions(isTestMode: boolean): Verification
     ...base,
     liveness: {
       enabled: true,
-      minScore: 0.7,
     },
   };
 }
@@ -95,7 +86,7 @@ export function getIsTestModeFromEnv(): boolean {
 
 /**
  * Convenience wrapper for example screens:
- * - exposes a shared SdkConfig
+ * - exposes a shared FaceZkRuntimeConfig
  * - exposes a shared FaceEmbeddingProvider
  * - computes verification options from test mode
  */
@@ -103,7 +94,7 @@ export function getExampleSdkRuntime(isTestMode: boolean) {
   const embeddingProvider = defaultFaceEmbeddingProvider ?? createFaceEmbeddingProvider();
 
   return {
-    sdkConfig: exampleSdkConfig,
+    sdkConfig: exampleFaceZkRuntimeConfig,
     embeddingProvider,
     verificationOptions: getExampleVerificationOptions(isTestMode),
     isTestMode,

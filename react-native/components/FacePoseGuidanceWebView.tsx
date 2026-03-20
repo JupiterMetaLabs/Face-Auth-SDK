@@ -97,23 +97,18 @@ export const FacePoseGuidanceWebView: React.FC<
   const loadResources = async () => {
     try {
       console.log("[FacePoseGuidance] Loading resources...");
-      // @ts-ignore
       const htmlAsset = Asset.fromModule(
         require("../../assets/face-guidance/index.html"),
       );
-      // @ts-ignore
       const jsAsset = Asset.fromModule(
         require("../../assets/face-guidance/pose-guidance.js.txt"),
       );
-      // @ts-ignore
       const logicAsset = Asset.fromModule(
         require("../../assets/face-guidance/face-logic.js.txt"),
       );
-      // @ts-ignore
       const antispoofAsset = Asset.fromModule(
         require("../../assets/liveness/antispoof.js.txt"),
       );
-      // @ts-ignore
       const modelAsset = Asset.fromModule(
         require("../../assets/models/antispoof.onnx"),
       );
@@ -222,7 +217,7 @@ export const FacePoseGuidanceWebView: React.FC<
 
   const injectScript = (script: string) => {
     if (Platform.OS === "web") {
-      // @ts-ignore
+      // @ts-expect-error — contentWindow.eval is present at runtime but not in the iframe element types
       iframeRef.current?.contentWindow?.eval(script);
     } else {
       webViewRef.current?.injectJavaScript(script);
@@ -368,6 +363,8 @@ export const FacePoseGuidanceWebView: React.FC<
         <WebView
           ref={webViewRef}
           originWhitelist={["*"]}
+          // CRITICAL: baseUrl must be https://localhost/ to provide a Secure Context for WebAssembly/ONNX.
+          // It does NOT make actual network requests, but prevents the WebView from throwing security errors.
           source={{ html: htmlContent, baseUrl: "https://localhost/" }}
           style={styles.webview}
           javaScriptEnabled={true}
@@ -376,7 +373,7 @@ export const FacePoseGuidanceWebView: React.FC<
           mediaPlaybackRequiresUserAction={false}
           onMessage={handleMessage}
           onLoadEnd={handleWebViewLoad}
-          // @ts-ignore
+          // @ts-expect-error — onPermissionRequest is an Android WebView prop not in react-native-webview types
           onPermissionRequest={(event) => {
             const { resources } = event.nativeEvent;
             if (resources.includes("camera")) {
@@ -395,7 +392,7 @@ export const FacePoseGuidanceWebView: React.FC<
             </Text>
             <Text style={styles.instructionBody}>
               {referenceImageUri
-                ? "We need to match the pose in your Aadhaar card."
+                ? "We need to match the pose in your reference image."
                 : "We will now capture your face. Please look straight into the camera."}
             </Text>
 
