@@ -1,233 +1,236 @@
 /**
  * Liveness Provider Adapter for React Native
  *
- * Wraps liveness detection logic to implement the LivenessProvider interface.
- * This adapter bridges the SDK core logic to the platform-specific liveness implementation.
+ * Bridges the WebView-based liveness engine (liveness.js + antispoof ONNX model)
+ * to the SDK's LivenessProvider interface consumed by verifyOnly / verifyWithProof.
  *
- * IMPORTANT: Liveness detection is HOST-PROVIDED, not part of the SDK.
- * =====================================================================
- * The SDK provides:
- * - LivenessProvider interface (contract for liveness detection)
- * - LivenessResult types (standardized output format)
- * - Integration into verification flow
- * - Configuration (enabled/disabled, minScore thresholds)
+ * ARCHITECTURE
+ * ============
+ * Real-time liveness detection runs entirely inside the ZkFaceAuth WebView component:
+ *   - MediaPipe FaceMesh: depth checks, challenge/response (blink, head turns),
+ *     perspective ratio check
+ *   - ONNX anti-spoof model: EMA-smoothed spoof score over the session
  *
- * The host application provides:
- * - Concrete implementation of LivenessProvider interface
- * - Camera capture and real-time processing
- * - Anti-spoofing algorithms (ML models, heuristics, etc.)
- * - UI for liveness challenges (blink, head movement, etc.)
+ * When the WebView completes it calls onSuccess(imageUri, metadata) where
+ * metadata = { spoofScore: number }.  The functions below convert that into
+ * the LivenessResult / LivenessProvider types expected by the SDK core.
  *
- * Why is liveness host-provided?
- * 1. Platform-specific: Different platforms have different capabilities
- *    (iOS FaceID, Android BiometricPrompt, custom WebView solutions)
- * 2. Complexity: Requires camera access, real-time ML inference, GPU acceleration
- * 3. Customization: Each app has different liveness requirements and UX
- * 4. Cost: Some solutions require licenses or cloud services
- * 5. Security: Anti-spoofing algorithms are sensitive IP
- *
- * Current implementation:
- * - createLivenessProvider() wraps your custom liveness service
- * - createLivenessResultFromWebView() adapts ZkFaceAuth WebView output
- * - Both produce standardized LivenessResult objects for SDK consumption
+ * USAGE PATTERN (inside FaceZkVerificationFlow or your own flow)
+ * ===============================================================
+ *   const handleLivenessSuccess = (imageUri: string, metadata?: { spoofScore: number }) => {
+ *     const result = createLivenessResultFromWebView(metadata?.spoofScore ?? 1.0);
+ *     const provider = createWebViewLivenessProvider(result);
+ *     runVerification(imageUri, provider);
+ *   };
  */
 
 import type { LivenessProvider } from "../../core/verification-core";
-import type { LivenessResult, LivenessCheckResult } from "../../core/types";
+import type { LivenessResult, LivenessCheckResult, LivenessCheckId } from "../../core/types";
+
+// Default threshold must match SPOOF_EMA_FAIL_THRESHOLD in liveness.js (0.60).
+// The WebView expresses "spoof confidence" (lower = more real), whereas the SDK
+// expresses "liveness score" (higher = more real), so we invert: realScore = 1 - spoofScore.
+const DEFAULT_ANTISPOOF_THRESHOLD = 0.6;
 
 /**
- * Configuration for liveness provider
+ * Build a LivenessResult from the metadata emitted by the ZkFaceAuth WebView.
+ *
+ * @param spoofScore  EMA anti-spoof score from the ONNX model (0 = definitely real, 1 = spoof)
+ * @param threshold   Fail if spoofScore >= threshold (default 0.6, matching liveness.js)
  */
-export interface LivenessProviderConfig {
-  /** Minimum antispoof score to consider liveness passed (0-1) */
-  minAntispoofScore?: number;
+export function createLivenessResultFromWebView(
+  spoofScore: number,
+  threshold: number = DEFAULT_ANTISPOOF_THRESHOLD,
+): LivenessResult {
+  const realScore = 1 - spoofScore; // invert: SDK convention is higher = more real
+  const passed = spoofScore < threshold;
 
-  /** Enable specific liveness checks */
-  enabledChecks?: {
-    motion?: boolean;
-    blink?: boolean;
-    poseVariation?: boolean;
-    depth3d?: boolean;
-    spoofTexture?: boolean;
+  const checks: LivenessCheckResult[] = [
+    {
+      id: "spoof_texture",
+      passed,
+      score: realScore,
+      reason: passed
+        ? `Anti-spoof check passed (score: ${realScore.toFixed(3)})`
+        : `Anti-spoof check failed (spoof score: ${spoofScore.toFixed(3)} ≥ threshold ${threshold})`,
+    },
+  ];
+
+  // The WebView only surfaces the final EMA score; individual challenge checks
+  // (blink, head-turn, perspective) are gated inside liveness.js — if the image
+  // reached onSuccess() those challenges already passed.
+  checks.push({
+    id: "motion",
+    passed: true,
+    reason: "Liveness challenges completed (blink / head-turn / perspective)",
+  });
+
+  return {
+    passed,
+    score: realScore,
+    checks,
   };
 }
 
 /**
- * Create a liveness provider that wraps your host application's liveness service.
+ * Wrap a pre-computed LivenessResult into a LivenessProvider.
  *
- * This is an example/template implementation. In production, you should:
- * 1. Replace this with your actual liveness detection logic
- * 2. Integrate with your camera capture system
- * 3. Run your anti-spoofing algorithms
- * 4. Return a LivenessResult with real check data
+ * Use this after the ZkFaceAuth WebView completes so the SDK's verifyOnly /
+ * verifyWithProof can record the real ONNX scores in VerificationOutcome.liveness.
  *
- * Example integration:
- * ```typescript
- * import { createLivenessProvider } from './sdk/react-native/adapters/livenessProvider';
- * import { myLivenessService } from './src/services/liveness';
+ * The imageUri argument is ignored because the check already ran inside the WebView.
+ */
+export function createWebViewLivenessProvider(
+  preComputedResult: LivenessResult,
+): LivenessProvider {
+  return {
+    async checkLiveness(_imageUri: string): Promise<LivenessResult> {
+      return preComputedResult;
+    },
+  };
+}
+
+// ============================================================================
+// Unified factory — default (WebView) or custom host-provided service
+// ============================================================================
+
+/**
+ * Configuration for {@link createLivenessProvider}.
  *
- * const livenessProvider = createLivenessProvider({
- *   minAntispoofScore: 0.85,
- *   enabledChecks: {
- *     motion: true,
- *     blink: true,
- *     spoofTexture: true,
- *   },
- * });
+ * **Default path (WebView):** omit `service` and pass `spoofScore` from the
+ * ZkFaceAuth WebView's `onSuccess` callback. The SDK built-in anti-spoof model
+ * is used and the result is pre-computed before verification runs.
  *
- * // In your liveness service, implement actual checks:
- * // - Analyze frame for motion/blink
- * // - Run ML model for spoof detection
- * // - Return structured LivenessResult
+ * **Custom path:** provide `service` to plug in any host-owned liveness
+ * implementation (e.g. iOS FaceID, a cloud API, your own ONNX model).
+ */
+export interface LivenessProviderConfig {
+  // --- Default WebView path ---
+  /** EMA spoof score from the ONNX model (0 = real, 1 = spoof). Default: 0. */
+  spoofScore?: number;
+  /** Threshold above which the frame is considered a spoof. Default: 0.6. */
+  threshold?: number;
+
+  // --- Custom host-provided service path ---
+  /**
+   * Your own liveness service. When provided, `spoofScore` and `threshold`
+   * are ignored and the service's `checkLiveness` result is used instead.
+   */
+  service?: {
+    checkLiveness(imageUri: string): Promise<{
+      passed: boolean;
+      score?: number;
+      checks?: Array<{ id: string; passed: boolean; score?: number; reason?: string }>;
+    }>;
+  };
+  /** Fail if `score < minScore` (only applied when using `service`). */
+  minScore?: number;
+  /** Require all listed check IDs to pass (only applied when using `service`). */
+  requiredChecks?: string[];
+}
+
+/**
+ * Unified liveness provider factory.
+ *
+ * - **No `service`** (default): wraps the ZkFaceAuth WebView's pre-computed
+ *   anti-spoof result. Pass `spoofScore` from the WebView's `onSuccess` callback.
+ * - **With `service`**: delegates every `checkLiveness` call to your own
+ *   implementation, applying optional `minScore` and `requiredChecks` guards.
+ *
+ * @example Default (SDK built-in WebView)
+ * ```ts
+ * const provider = createLivenessProvider({ spoofScore: metadata.spoofScore });
  * ```
  *
- * @param config Liveness provider configuration
- * @returns LivenessProvider implementation
+ * @example Custom host service
+ * ```ts
+ * const provider = createLivenessProvider({ service: myLivenessService, minScore: 0.8 });
+ * ```
  */
 export function createLivenessProvider(
   config: LivenessProviderConfig = {},
 ): LivenessProvider {
-  const { minAntispoofScore = 0.8, enabledChecks = {} } = config;
+  if (config.service) {
+    const { service, minScore, requiredChecks } = config;
+    return {
+      async checkLiveness(imageUri: string): Promise<LivenessResult> {
+        const result = await service.checkLiveness(imageUri);
 
+        let passed = result.passed;
+        if (minScore !== undefined && result.score !== undefined && result.score < minScore) {
+          passed = false;
+        }
+        if (requiredChecks?.length && result.checks) {
+          for (const checkId of requiredChecks) {
+            if (!result.checks.find((c) => c.id === checkId)?.passed) {
+              passed = false;
+              break;
+            }
+          }
+        }
+
+        return {
+          passed,
+          score: result.score,
+          checks: result.checks?.map((c) => ({
+            id: c.id as LivenessCheckId,
+            passed: c.passed,
+            score: c.score,
+            reason: c.reason,
+          })),
+        };
+      },
+    };
+  }
+
+  // Default: pre-computed WebView result
+  const result = createLivenessResultFromWebView(config.spoofScore ?? 0, config.threshold);
   return {
-    async checkLiveness(imageUri: string): Promise<LivenessResult> {
-      // ================================================================
-      // HOST APPLICATION IMPLEMENTATION REQUIRED
-      // ================================================================
-      // This is a placeholder that demonstrates the expected interface.
-      // Replace this with your actual liveness detection implementation.
-      //
-      // Your implementation should:
-      // 1. Load the image from imageUri
-      // 2. Run your anti-spoofing checks (ML models, heuristics, etc.)
-      // 3. Evaluate motion, blink, pose variation, depth, etc.
-      // 4. Return a LivenessResult with pass/fail and check details
-      //
-      // Example:
-      //   const image = await loadImage(imageUri);
-      //   const antispoofScore = await myModel.predictAntiSpoof(image);
-      //   const motionScore = await myModel.detectMotion(image);
-      //   return {
-      //     passed: antispoofScore > minAntispoofScore,
-      //     score: antispoofScore,
-      //     checks: [
-      //       { id: "spoof_texture", passed: antispoofScore > 0.8, score: antispoofScore },
-      //       { id: "motion", passed: motionScore > 0.5, score: motionScore },
-      //     ],
-      //   };
-      // ================================================================
-
-      console.warn(
-        "[LivenessProvider] Using placeholder implementation - Replace with your liveness detection service",
-      );
-
-      // Placeholder: return a passing result
-      // DO NOT use this in production!
-      return {
-        passed: true,
-        score: 0.95,
-        checks: [
-          {
-            id: "motion",
-            passed: true,
-            score: 0.95,
-            reason: "PLACEHOLDER - Replace with actual motion detection",
-          },
-          {
-            id: "spoof_texture",
-            passed: true,
-            score: 0.95,
-            reason: "PLACEHOLDER - Replace with actual anti-spoof model",
-          },
-        ],
-      };
+    async checkLiveness(_imageUri: string): Promise<LivenessResult> {
+      return result;
     },
   };
 }
 
-/**
- * Singleton instance for convenience.
- * Use this if you don't need custom configuration.
- */
-export const defaultLivenessProvider = createLivenessProvider();
+// ============================================================================
+// ZkFaceAuth adapter — for post-capture re-verification via analyzeLiveness()
+// ============================================================================
 
 /**
- * Create a liveness provider that integrates with the ZkFaceAuth component.
- *
- * This is a bridge function that will be implemented in Phase 5 when building UI flows.
- * It will extract the liveness detection logic from ZkFaceAuth and make it available
- * as a standalone service.
- *
- * Usage in UI flows:
- * 1. ZkFaceAuth component runs and captures a frame
- * 2. Component calls this provider with the captured frame URI
- * 3. Provider returns liveness result based on WebView detection
- *
- * @param antispoofScore Antispoof score from WebView (0-1)
- * @param metadata Additional metadata from liveness detection
- * @returns LivenessResult
+ * Interface for a ZkFaceAuth-based liveness analysis service.
+ * Used with {@link createZkFaceAuthLivenessProvider} for post-capture re-verification.
  */
-export function createLivenessResultFromWebView(
-  antispoofScore: number,
-  metadata?: {
-    motionDetected?: boolean;
-    blinkDetected?: boolean;
-    poseVariation?: boolean;
-    depth3dPassed?: boolean;
-  },
-): LivenessResult {
-  const passed = antispoofScore >= 0.8; // Default threshold
+export interface ZkFaceAuthLivenessService {
+  analyzeLiveness(imageUri: string): Promise<{
+    passed: boolean;
+    score: number;
+    checks: Array<{
+      type: "blink" | "motion" | "pose_variation" | "spoof_texture" | "depth_or_3d";
+      passed: boolean;
+      confidence: number;
+    }>;
+  }>;
+}
 
-  const checks: LivenessCheckResult[] = [
-    {
-      id: "spoof_texture" as const,
-      passed: antispoofScore >= 0.8,
-      score: antispoofScore,
-      reason: passed
-        ? "Antispoof check passed"
-        : `Low antispoof score: ${antispoofScore.toFixed(2)}`,
-    },
-  ];
-
-  if (metadata?.motionDetected !== undefined) {
-    checks.push({
-      id: "motion" as const,
-      passed: metadata.motionDetected,
-      reason: metadata.motionDetected
-        ? "Motion detected"
-        : "No motion detected",
-    });
-  }
-
-  if (metadata?.blinkDetected !== undefined) {
-    checks.push({
-      id: "blink" as const,
-      passed: metadata.blinkDetected,
-      reason: metadata.blinkDetected ? "Blink detected" : "No blink detected",
-    });
-  }
-
-  if (metadata?.poseVariation !== undefined) {
-    checks.push({
-      id: "pose_variation" as const,
-      passed: metadata.poseVariation,
-      reason: metadata.poseVariation
-        ? "Pose variation detected"
-        : "Insufficient pose variation",
-    });
-  }
-
-  if (metadata?.depth3dPassed !== undefined) {
-    checks.push({
-      id: "depth_or_3d" as const,
-      passed: metadata.depth3dPassed,
-      reason: metadata.depth3dPassed ? "3D depth check passed" : "3D depth check failed",
-    });
-  }
-
+/**
+ * Create a liveness provider that wraps a ZkFaceAuth-based `analyzeLiveness` service.
+ * Useful for post-capture liveness re-verification on an already-captured image.
+ */
+export function createZkFaceAuthLivenessProvider(
+  zkFaceAuthService: ZkFaceAuthLivenessService,
+): LivenessProvider {
   return {
-    passed: passed && checks.every((c) => c.passed),
-    score: antispoofScore,
-    checks,
+    async checkLiveness(imageUri: string): Promise<LivenessResult> {
+      const result = await zkFaceAuthService.analyzeLiveness(imageUri);
+      return {
+        passed: result.passed,
+        score: result.score,
+        checks: result.checks.map((check) => ({
+          id: check.type,
+          passed: check.passed,
+          score: check.confidence,
+        })),
+      };
+    },
   };
 }

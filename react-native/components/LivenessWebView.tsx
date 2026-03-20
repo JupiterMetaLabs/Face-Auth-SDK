@@ -221,17 +221,17 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
 
       const injectScript = `
                 // Inject MediaPipe Files globally to intercept locateFile
-                window.MP_WASM_SIMD_BASE64 = "${mpWasmSimdBase64}";
-                window.MP_WASM_BASE64 = "${mpWasmBase64}";
-                window.MP_DATA_BASE64 = "${mpDataBase64}";
+                window.MP_WASM_SIMD_BASE64 = ${JSON.stringify(mpWasmSimdBase64)};
+                window.MP_WASM_BASE64 = ${JSON.stringify(mpWasmBase64)};
+                window.MP_DATA_BASE64 = ${JSON.stringify(mpDataBase64)};
                 console.log("[ZkFaceAuth] MediaPipe injected");
 
                 if (window.loadAntispoofModel) {
-                    window.loadAntispoofModel("${modelBase64}");
+                    window.loadAntispoofModel(${JSON.stringify(modelBase64)});
                 } else {
                     console.error('loadAntispoofModel not found');
                 }
-                
+
                 // Set target pose if available
                 if (${JSON.stringify(manualTargetPose)}) {
                     window.TARGET_POSE = ${JSON.stringify(manualTargetPose)};
@@ -239,8 +239,8 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
                 }
 
                 // Set Reference Image if available
-                if ("${referenceBase64}") {
-                    window.REFERENCE_IMAGE_URI = "${referenceBase64}";
+                if (${JSON.stringify(referenceBase64)}) {
+                    window.REFERENCE_IMAGE_URI = ${JSON.stringify(referenceBase64)};
                     console.log('Reference Image Injected');
                 }
 
@@ -361,6 +361,8 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
     <View style={styles.container}>
       <WebView
         ref={webViewRef}
+        // CRITICAL: baseUrl must be https://localhost/ to provide a Secure Context for WebAssembly/ONNX.
+        // It does NOT make actual network requests, but prevents the WebView from throwing security errors.
         source={{ html: htmlContent, baseUrl: "https://localhost/" }}
         style={styles.webview}
         javaScriptEnabled={true}
@@ -371,8 +373,6 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
         bounces={false}
         overScrollMode="never"
         scalesPageToFit={true}
-        allowFileAccess={true}
-        allowUniversalAccessFromFileURLs={true}
         onMessage={handleMessage}
         // @ts-expect-error — onPermissionRequest is an Android WebView prop not in react-native-webview types
         onPermissionRequest={(event) => {

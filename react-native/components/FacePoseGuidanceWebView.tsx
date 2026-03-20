@@ -363,6 +363,8 @@ export const FacePoseGuidanceWebView: React.FC<
         <WebView
           ref={webViewRef}
           originWhitelist={["*"]}
+          // CRITICAL: baseUrl must be https://localhost/ to provide a Secure Context for WebAssembly/ONNX.
+          // It does NOT make actual network requests, but prevents the WebView from throwing security errors.
           source={{ html: htmlContent, baseUrl: "https://localhost/" }}
           style={styles.webview}
           javaScriptEnabled={true}

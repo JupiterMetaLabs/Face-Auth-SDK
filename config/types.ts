@@ -73,6 +73,19 @@ export interface FaceZkFeaturesConfig {
 export interface FaceZkConfig {
   models: FaceZkModelsConfig;
   features?: FaceZkFeaturesConfig;
+  /**
+   * Allowlist of hostnames that the SDK is permitted to download models from.
+   * Only applies to `ModelSource.url` entries — module and localUri sources
+   * are unaffected.
+   *
+   * When provided, any URL whose hostname is not in this list is rejected
+   * before a network request is made. Omitting this field disables the check
+   * (permissive — suitable for development; not recommended for production).
+   *
+   * @example
+   * allowedDomains: ["cdn.yourcompany.com"]
+   */
+  allowedDomains?: string[];
 }
 
 // ============================================================================

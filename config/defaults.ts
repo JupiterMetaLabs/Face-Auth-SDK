@@ -7,9 +7,6 @@
 
 import type { FaceZkSetupConfig } from "./types";
 
-/** Default CDN base URL for model downloads (no trailing slash). */
-export const DEFAULT_CDN_BASE = "https://cdn.jmdt.io/face-zk/v1";
-
 /** Canonical model filenames matching what's tracked in the SDK repo. */
 export const DEFAULT_MODEL_FILES = {
   detection: "det_500m.onnx",
@@ -19,10 +16,13 @@ export const DEFAULT_MODEL_FILES = {
   zkWorkerHtml: "zk-worker.html",
 } as const;
 
-/** Default setup config used when no face-zk.config.js is found in the project. */
+/**
+ * Default setup config used when no face-zk.config.js is found in the project.
+ * The source URL is a placeholder — replace it with your own CDN before use.
+ */
 export const DEFAULT_SETUP_CONFIG: FaceZkSetupConfig = {
   models: {
-    source: DEFAULT_CDN_BASE,
+    source: "https://cdn.your-company.com/face-zk/v1",
     dest: "./assets/face-zk/",
   },
   features: {
@@ -32,7 +32,11 @@ export const DEFAULT_SETUP_CONFIG: FaceZkSetupConfig = {
 };
 
 /**
- * Build full CDN URLs for all models using a given base URL and optional file overrides.
+ * Build full absolute CDN URLs for all required models.
+ * 
+ * @param {string} base - The base CDN URL (e.g. from sdkConfig or environment).
+ * @param {FaceZkSetupConfig["models"]["files"]} [files] - Optional static file name overrides.
+ * @returns {Record<string, string>} A dictionary of fully qualified URIs ready for pre-fetching.
  */
 export function buildModelUrls(
   base: string,
