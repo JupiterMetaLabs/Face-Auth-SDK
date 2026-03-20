@@ -1,5 +1,5 @@
 {
-  "name": "@jmdt/face-zk-sdk",
+  "name": "@jupitermetalabs/face-zk-sdk",
   "version": "0.1.0",
   "description": "Face Verification and ZK Proof SDK for React Native and Web",
   "main": "dist/index.js",

@@ -1,4 +1,4 @@
-# Config Module (`@jmdt/face-zk-sdk/config`)
+# Config Module (`@jupitermetalabs/face-zk-sdk/config`)
 
 This module defines the default settings, limits, and environmental configurations for the Face+ZK SDK. 
 
@@ -13,7 +13,7 @@ By default, the SDK may point to an internal CDN URL for downloading necessary O
 **WARNING:** Before releasing your app to production, you must override the `cdnBaseUrl` to point to an infrastructure you control, as internal test CDNs are not guaranteed to have public uptime.
 
 ```typescript
-import { initializeSdk } from '@jmdt/face-zk-sdk/react-native';
+import { initializeSdk } from '@jupitermetalabs/face-zk-sdk/react-native';
 
 await initializeSdk({
   models: {

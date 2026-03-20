@@ -15,7 +15,7 @@
  */
 
 /**
- * face-zk.config.js – Example configuration for @jmdt/face-zk-sdk
+ * face-zk.config.js – Example configuration for @jupitermetalabs/face-zk-sdk
  *
  * Copy this file to your project root and rename it to face-zk.config.js.
  * Then run:  npx face-zk setup
@@ -24,7 +24,7 @@
  * At runtime, call FaceZkSdk.init(config) in your app code (see below).
  */
 
-/** @type {import('@jmdt/face-zk-sdk').FaceZkSetupConfig} */
+/** @type {import('@jupitermetalabs/face-zk-sdk').FaceZkSetupConfig} */
 module.exports = {
   models: {
     /**
@@ -66,7 +66,7 @@ module.exports = {
 // Runtime initialization (put this in your App.tsx / app entry point)
 // ============================================================================
 //
-// import { FaceZkSdk } from '@jmdt/face-zk-sdk';
+// import { FaceZkSdk } from '@jupitermetalabs/face-zk-sdk';
 //
 // // Option A – bundled assets (run `npx face-zk setup` first, then require() them)
 // await FaceZkSdk.init({

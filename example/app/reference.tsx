@@ -17,8 +17,8 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import type { ReferenceTemplate, FaceZkRuntimeConfig, FaceEmbeddingProvider } from "@jmdt/face-zk-sdk/react-native";
-import { ReferenceEnrollmentFlow } from "@jmdt/face-zk-sdk/react-native";
+import type { ReferenceTemplate, FaceZkRuntimeConfig, FaceEmbeddingProvider } from "@jupitermetalabs/face-zk-sdk/react-native";
+import { ReferenceEnrollmentFlow } from "@jupitermetalabs/face-zk-sdk/react-native";
 
 interface ExampleRuntime {
   sdkConfig: FaceZkRuntimeConfig;

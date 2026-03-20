@@ -1,4 +1,4 @@
-# React Native Module (`@jmdt/face-zk-sdk/react-native`)
+# React Native Module (`@jupitermetalabs/face-zk-sdk/react-native`)
 
 This directory contains the React Native-specific UI components, adapters, and environment bindings required to run the Face+ZK SDK in a mobile application.
 
@@ -15,7 +15,7 @@ Unlike previous versions, the SDK provides a unified initialization function exp
 
 ### **Initialization Example**
 ```typescript
-import { initializeSdk } from '@jmdt/face-zk-sdk/react-native';
+import { initializeSdk } from '@jupitermetalabs/face-zk-sdk/react-native';
 
 // Call this as early as possible in your application lifecycle
 await initializeSdk({

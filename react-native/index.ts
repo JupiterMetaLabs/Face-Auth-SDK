@@ -20,7 +20,7 @@
  * Entry point for React Native-specific components and adapters.
  * Includes UI flows and platform-specific implementations.
  *
- * For core (headless) functionality, import from '@jmdt/face-zk-sdk'
+ * For core (headless) functionality, import from '@jupitermetalabs/face-zk-sdk'
  */
 
 // ============================================================================

@@ -20,7 +20,7 @@
  *
  * @example – models bundled in the app (user copies assets via `npx face-zk setup --bundle`)
  * ```ts
- * import { FaceZkSdk } from '@jmdt/face-zk-sdk';
+ * import { FaceZkSdk } from '@jupitermetalabs/face-zk-sdk';
  *
  * await FaceZkSdk.init({
  *   models: {

@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-import type { FaceZkRuntimeConfig, VerificationOptions, SdkLogger } from "@jmdt/face-zk-sdk/react-native";
+import type { FaceZkRuntimeConfig, VerificationOptions, SdkLogger } from "@jupitermetalabs/face-zk-sdk/react-native";
 import {
   defaultStorageAdapter,
   createFaceEmbeddingProvider,
   defaultFaceEmbeddingProvider,
-} from "@jmdt/face-zk-sdk/react-native";
+} from "@jupitermetalabs/face-zk-sdk/react-native";
 
 type LogEvent = Parameters<NonNullable<SdkLogger["onLog"]>>[0];
 

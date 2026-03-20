@@ -218,7 +218,7 @@ export const FaceZkVerificationFlow: React.FC<
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
         <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
-          FaceZkSdk is not initialized.{"\n"}Call initializeSdk() from '@jmdt/face-zk-sdk/react-native' before rendering this component.
+          FaceZkSdk is not initialized.{"\n"}Call initializeSdk() from '@jupitermetalabs/face-zk-sdk/react-native' before rendering this component.
         </Text>
       </View>
     );
