@@ -1,51 +1,27 @@
-# SDK Core Module
+# Core Module (`@jmdt/face-zk-sdk/core`)
 
-This directory contains the headless, platform-agnostic business logic for the Face+ZK SDK. It is written in pure TypeScript and does not depend on React or React Native, making it suitable for testing and core algorithm refinement.
+The `core` module contains the pure, platform-independent business logic of the Face+ZK SDK. It is responsible for all cryptographic and mathematical operations, ensuring that they can run seamlessly in any JavaScript environment (Web, Node, or React Native via polyfills).
 
-## Files
+## Architecture
 
-- **`types.ts`**: The source of truth for all SDK types, interfaces, and enums. Defines `ReferenceTemplate`, `VerificationOutcome`, `SdkConfig`, and more.
-- **`enrollment-core.ts`**: Logic for creating a reference template from a face image. Handles embedding extraction (via provider) and pose validation.
-- **`verification-core.ts`**: The main verification orchestrator. Handles liveness checks, face matching, and ZK proof coordination.
-- **`matching.ts`**: Mathematical utilities for face matching, including L2 distance calculations and score normalization.
-- **`zk-core.ts`**: Core logic for generating and persisting Zero-Knowledge proofs.
+This module is intentionally decoupled from any UI components or specific rendering engines. 
 
-## Detailed Type Reference
+It handles four main pipelines:
+1. **Face Alignment (`faceAlignment.ts`)** - Evaluates facial landmarks to estimate head pose (pitch/yaw/roll) using Umeyama estimation.
+2. **Embedding Generation (`FaceRecognition.ts`)** - Interacts with the underlying ONNX execution provider to generate 128-dimensional floating point vectors representing facial features.
+3. **Mathematical Matching (`matching.ts`)** - Calculates the Euclidean L2-Squared distance between two face embeddings to determine similarity percentages.
+4. **Zero-Knowledge Proofs (`zk-core.ts`)** - Orchestrates the Plonky3 WASM circuits to cryptographically prove that an embedding matches a reference template without revealing the embeddings themselves.
 
-### `ReferenceTemplate`
-Stored identity reference.
-- `referenceId`: Unique opaque identifier.
-- `embedding`: The extraction vector (normalized).
-- `pose`: Head orientation at time of enrollment. Used as the baseline for future verification guidance.
-- `metadata`: Optional key-value store.
+## Breaking Changes in v3.0: The Threshold API
 
-### `VerificationOutcome`
-The object returned by verification flows.
-- `success`: `true` only if all enabled checks pass.
-- `score`: The **Match Percentage** (0-100).
-- `match`: Component-level metrics (L2 Distance vs Threshold).
-- `liveness`: Comprehensive anti-spoofing results.
-- `zkProof`: The cryptographic proof and its hash (if generated).
-- `error`: Structured `SdkError` if things went wrong.
+**Important:** The API for calculating match success changed in `v3.0`. The `FaceMatchResult.passed` flag and `MatchingConfig.threshold` options have been removed. The SDK no longer determines "pass/fail" boolean flags manually. 
 
-### `FaceMatchResult`
-- `distance`: Raw L2-squared deviation between faces.
-- `matchPercentage`: Human-friendly score mapped from distance.
-- `passed`: `distance <= threshold`.
+Instead:
+* The `matching.ts` utilities provide the *distance* and the *percentage match*.
+* The minimum score threshold is cryptographically enforced within the **Zero-Knowledge WASM circuit** itself.
+* If a match does not meet the necessary threshold, the ZK proof generation will fail cryptographically, throwing a `ZK_GENERATION_FAILED` error.
 
----
+## Security Considerations
 
-## Key APIs
-
-### `verifyWithProof(...)`
-- **`sdkConfig`**: Global settings.
-- **`reference`**: The `ReferenceTemplate` to match against.
-- **`liveImage`**: The result of liveness capture.
-- **`zkEngine`**: Implementation for proof generation.
-- **`options`**: Overrides (e.g., `includeImageData`).
-
-### `createReferenceFromImage(...)`
-- **`imageUri`**: Path to the reference photo.
-- **`embeddingProvider`**: Logic to extract the face vector.
-- **`options`**: Enrollment settings (metadata, persistence).
-- **Required**: The image must contain exactly one face with a relatively neutral pose.
+* **Pure Functions:** Functions in this module do not inherently save or cache data to disk. 
+* **Zero-Knowledge:** The generated `ZkProofSummary` only contains the cryptic proof buffer and byte size. It does not contain PII or the raw embedding vectors.

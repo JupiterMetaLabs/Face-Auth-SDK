@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased] — 2026-03-20
+
+### Developer Experience
+
+#### Breaking Changes
+- **`verifyOnly` / `verifyWithProof` reduced from 7 to 5 parameters** — `livenessProvider` and `imageDataProvider` are now passed inside a single `VerifyCallOptions` object (5th arg):
+  ```ts
+  // Old
+  await verifyOnly(ref, uri, config, embedProv, livenessProvider, undefined, verificationOptions);
+  // New
+  await verifyOnly(ref, uri, config, embedProv, { livenessProvider, ...verificationOptions });
+  ```
+- **`SdkConfig` renamed to `FaceZkRuntimeConfig`** — Eliminates naming confusion with `FaceZkConfig` (init-time config). Update all imports and type annotations. The shape is unchanged.
+- **`createLivenessProvider` replaces the two-step WebView bridge** — The old `createLivenessResultFromWebView` + `createWebViewLivenessProvider` pattern still works but the unified factory is now preferred:
+  ```ts
+  // Old (still valid)
+  const result = createLivenessResultFromWebView(spoofScore);
+  const provider = createWebViewLivenessProvider(result);
+
+  // New (preferred)
+  const provider = createLivenessProvider({ spoofScore });
+  ```
+  Custom host-side liveness services are now supported through the same factory:
+  ```ts
+  const provider = createLivenessProvider({ service: myService, minScore: 0.8 });
+  ```
+
+#### Removed
+- **`react-native/platform-adapters/`** directory deleted — `createLivenessProvider`, `createZkFaceAuthLivenessProvider`, `LivenessProviderConfig`, and `ZkFaceAuthLivenessService` are now exported directly from `react-native/index.ts` (via `react-native/adapters/livenessProvider.ts`).
+
+#### Fixed
+- Error messages in `FaceZkVerificationFlow` and `ReferenceEnrollmentFlow` now correctly direct users to call `initializeSdk()` instead of the lower-level `FaceZkSdk.init()`.
+
+---
+
 ## [Unreleased] — 2026-03-18
 
 ### Audit Remediation (Two-Pass Audit, March 17–18, 2026)

@@ -13,21 +13,19 @@ import {
   initializeSdk,
   modelInitialisationChecks,
   resolveModelUri,
+  type FaceZkModelsConfig,
 } from "@jmdt/face-zk-sdk/react-native";
-import type { FaceZkModelsConfig } from "@jmdt/face-zk-sdk/react-native";
-import { buildModelUrls, DEFAULT_CDN_BASE } from "../../config/defaults";
 
 // ── Model config ─────────────────────────────────────────────────────────────
-// Models are downloaded from CDN on first launch and stored in
-// documentDirectory. Subsequent launches skip the download entirely.
-const cdnUrls = buildModelUrls(DEFAULT_CDN_BASE);
-
+// Using locally bundled assets. When you're ready to ship without bundling
+// models in the binary, swap these module sources for { url: "..." } pointing
+// to your CDN and the download/cache logic below handles the rest.
 const MODEL_CONFIG: FaceZkModelsConfig = {
-  detection:    { url: cdnUrls.detection },
-  recognition:  { url: cdnUrls.recognition },
-  antispoof:    { url: cdnUrls.antispoof },
-  wasm:         { url: cdnUrls.wasm },
-  zkWorkerHtml: { url: cdnUrls.zkWorkerHtml },
+  detection:    { module: require("../../assets/models/det_500m.onnx") },
+  recognition:  { module: require("../../assets/models/w600k_mbf.onnx") },
+  antispoof:    { module: require("../../assets/models/antispoof.onnx") },
+  wasm:         { module: require("../../assets/wasm/zk_face_wasm_bg.wasm") },
+  zkWorkerHtml: { module: require("../../assets/zk-worker.html") },
 };
 
 // How many models we'll download (all 5 configured above).
@@ -59,14 +57,10 @@ export default function RootLayout() {
         // ── 2. Download anything that's missing ───────────────────────────
         if (!readiness.ready) {
           setIsDownloading(true);
-          const modelKeys = Object.keys(MODEL_CONFIG) as Array<
-            keyof FaceZkModelsConfig
-          >;
           let completedFiles = readiness.present.length;
 
-          for (const key of modelKeys) {
+          for (const key of readiness.missing) {
             if (cancelled) return;
-            if (readiness.present.includes(key as any)) continue;
 
             const source = MODEL_CONFIG[key];
             if (!source) continue;
@@ -75,7 +69,6 @@ export default function RootLayout() {
 
             await resolveModelUri(source, (fraction) => {
               if (cancelled) return;
-              // Overall progress = files already done + current file's fraction
               setDownloadProgress(
                 (completedFiles + fraction) / TOTAL_MODELS,
               );

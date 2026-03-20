@@ -9,7 +9,7 @@ This folder contains a **self-contained example flow** that demonstrates how to:
 
 The example is implemented as a **standalone Expo app** and serves as a best-practice reference for integration.
 
-> **Note**: This example uses the default SDK-owned dependencies from `react-native/dependencies.ts`. You can optionally call `initializeSdkDependencies(...)` from your app's root layout if you want to inject custom implementations.
+> **Note**: This example calls `initializeSdk(config)` at app startup, which wires up the SDK's default React Native dependencies automatically. Pass a second `deps` argument to inject custom WebView or service implementations.
 
 ---
 
@@ -23,7 +23,7 @@ The example is implemented as a **standalone Expo app** and serves as a best-pra
 - `app/reference.tsx`: Wraps `ReferenceEnrollmentFlow` from `react-native/ui/ReferenceEnrollmentFlow.tsx`.
 - `app/verify.tsx`: Wraps `FaceZkVerificationFlow` from `react-native/ui/FaceZkVerificationFlow.tsx` and adds a summary screen.
 - `src/sdkRuntime/faceZkSdkExample.ts`:
-  - Defines `exampleSdkConfig` (matching + liveness + storage).
+  - Defines `exampleSdkConfig` (`FaceZkRuntimeConfig` — liveness + storage).
   - Exposes `getIsTestModeFromEnv()` to read `EXPO_PUBLIC_ENABLE_TEST_MODE`.
   - Exposes `getExampleSdkRuntime(isTestMode)` to bundle `sdkConfig`, `embeddingProvider`, and derived `verificationOptions`.
 
@@ -51,5 +51,5 @@ The example is implemented as a **standalone Expo app** and serves as a best-pra
 
 - Use this example as a **reference template** for your own verification flows.
 - Replace the example form with your real KYC inputs and backend calls.
-- Tighten `exampleSdkConfig` for your production thresholds.
+- Configure `exampleSdkConfig` (`FaceZkRuntimeConfig`) for your production liveness and ZK settings.
 - Wire a real `LivenessProvider` and `ZkProofEngine` implementation via the SDK contracts when moving beyond test/demo mode.

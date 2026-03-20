@@ -11,10 +11,13 @@ A standalone React Native and Web SDK for face verification and Zero-Knowledge (
 
 ## Directory Structure
 
-- `core/`: Headless business logic, types, and matching algorithms.
-- `react-native/`: UI components, platform adapters, and hooks for React Native/Expo.
+To keep documentation clean, each major module has its own dedicated documentation:
+- [**`core/`**](./core/README.md): Headless business logic, types, and matching algorithms.
+- [**`react-native/`**](./react-native/README.md): UI components, platform adapters, and hooks for React Native/Expo.
+- [**`config/`**](./config/README.md): Configuration guides, environments, and CDN settings.
 - `storage/`: Built-in storage adapters for persisting enrolled references and proofs.
 - `assets/`: ONNX models and WebView-based liveness/ZK scripts.
+- `example/`: A complete Expo app demonstrating how to integrate the SDK.
 - `example/`: A complete Expo app demonstrating how to integrate the SDK.
 
 ## Getting Started
@@ -39,8 +42,8 @@ A standalone React Native and Web SDK for face verification and Zero-Knowledge (
 
 ## Detailed Configuration Reference
 
-### `SdkConfig`
-The global configuration for the SDK instance.
+### `FaceZkRuntimeConfig`
+The global runtime configuration for the SDK instance.
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
@@ -57,11 +60,13 @@ The global configuration for the SDK instance.
 
 ---
 
-### `VerificationOptions`
-Pass these to `FaceZkVerificationFlow` or `verifyWithProof` to override global config for a single session.
+### `VerifyCallOptions`
+Pass to `verifyOnly` / `verifyWithProof` (5th argument) to supply per-call providers and override global config. Extends `VerificationOptions`.
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
+| **`livenessProvider`** | `LivenessProvider` | **Optional.** Liveness provider for this call. |
+| **`imageDataProvider`** | `ImageDataProvider` | **Optional.** Image-data provider (base64, size, quality). |
 | **`liveness`** | `Partial` | Override `enabled` for this check. |
 | **`zk`** | `Partial` | Override `requiredForSuccess` for this session. |
 | **`includeImageData`**| `Object` | Request extra data in the verified event payload. |
@@ -112,7 +117,7 @@ module.exports = config;
 ---
 
 ### 1. Initialize the SDK
-Call once at app startup (replaces the old two-step `initializeSdkDependencies` + `FaceZkSdk.init` pattern):
+Call once at app startup:
 ```typescript
 import { initializeSdk } from '@jmdt/face-zk-sdk/react-native';
 
@@ -127,20 +132,45 @@ await initializeSdk({
 });
 ```
 
-### 2. Enrollment Flow
+### 2. Build a `FaceZkRuntimeConfig`
+Pass this to the UI components or headless core functions to control liveness, ZK, storage, and logging:
+```typescript
+import type { FaceZkRuntimeConfig } from '@jmdt/face-zk-sdk/react-native';
+
+const sdkConfig: FaceZkRuntimeConfig = {
+  liveness: { enabled: true },
+  zk: { enabled: true, engine: myZkProofEngine, requiredForSuccess: false },
+  storage: myStorageAdapter,
+};
+```
+
+### 3. Liveness Provider
+The SDK ships with a built-in WebView liveness provider. Use the unified factory:
+```typescript
+import { createLivenessProvider } from '@jmdt/face-zk-sdk/react-native';
+
+// Default — uses the SDK's built-in WebView anti-spoof result
+const provider = createLivenessProvider({ spoofScore: metadata.spoofScore });
+
+// Custom — plug in your own host-side liveness service
+const provider = createLivenessProvider({ service: myLivenessService, minScore: 0.8 });
+```
+`FaceZkVerificationFlow` uses the built-in WebView provider automatically; you only need `createLivenessProvider` when implementing a headless flow or substituting your own liveness service.
+
+### 4. Enrollment Flow
 Capture a reference face and save it to storage.
 ```tsx
 <ReferenceEnrollmentFlow
-  sdkConfig={myConfig}
+  sdkConfig={sdkConfig}
   onComplete={(template) => console.log("Enrolled!", template)}
 />
 ```
 
-### 3. Verification Flow
+### 5. Verification Flow
 Verify a live user against a saved reference.
 ```tsx
 <FaceZkVerificationFlow
-  sdkConfig={myConfig}
+  sdkConfig={sdkConfig}
   reference={savedReference}
   mode="verify-with-proof"
   onComplete={(outcome) => console.log("Verified!", outcome)}

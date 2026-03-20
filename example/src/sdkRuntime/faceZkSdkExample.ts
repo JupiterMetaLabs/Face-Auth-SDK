@@ -1,4 +1,4 @@
-import type { SdkConfig, VerificationOptions, SdkLogger } from "@jmdt/face-zk-sdk/react-native";
+import type { FaceZkRuntimeConfig, VerificationOptions, SdkLogger } from "@jmdt/face-zk-sdk/react-native";
 import {
   defaultStorageAdapter,
   createFaceEmbeddingProvider,
@@ -13,7 +13,7 @@ type LogEvent = Parameters<NonNullable<SdkLogger["onLog"]>>[0];
  * Uses liveness checks and the default storage adapter bundled with the SDK.
  * Match pass/fail is determined by the ZK engine — no threshold is configured here.
  */
-export const exampleSdkConfig: SdkConfig = {
+export const exampleFaceZkRuntimeConfig: FaceZkRuntimeConfig = {
   liveness: {
     enabled: true,
   },
@@ -86,7 +86,7 @@ export function getIsTestModeFromEnv(): boolean {
 
 /**
  * Convenience wrapper for example screens:
- * - exposes a shared SdkConfig
+ * - exposes a shared FaceZkRuntimeConfig
  * - exposes a shared FaceEmbeddingProvider
  * - computes verification options from test mode
  */
@@ -94,7 +94,7 @@ export function getExampleSdkRuntime(isTestMode: boolean) {
   const embeddingProvider = defaultFaceEmbeddingProvider ?? createFaceEmbeddingProvider();
 
   return {
-    sdkConfig: exampleSdkConfig,
+    sdkConfig: exampleFaceZkRuntimeConfig,
     embeddingProvider,
     verificationOptions: getExampleVerificationOptions(isTestMode),
     isTestMode,

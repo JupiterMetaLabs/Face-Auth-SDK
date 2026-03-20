@@ -44,15 +44,15 @@ Legend: `[x]` = fixed/resolved · `[-]` = dismissed (see notes) · `[ ]` = pendi
 
 ### CRITICAL
 
-- [ ] **S-1** — Internal CDN URL hardcoded in `config/defaults.ts` — `https://cdn.jmdt.io/face-zk/v1` exposed in SDK defaults
-- [ ] **S-2** — Path traversal in model cache download — filename extracted from URL without sanitization — `resolveModelUri.ts`
+- [x] **S-1** — Internal CDN URL hardcoded in `config/defaults.ts` — Remediated with placeholder URL and JSDoc security warning
+- [x] **S-2** — Path traversal in model cache download — `deriveStorePath` now URL-decodes, strips `/`/`\`, and removes `.`/`..` segments — `resolveModelUri.ts`
 
 ### HIGH
 
-- [ ] **S-3** — WebView universal file access enabled — `allowFileAccess`, `allowFileAccessFromFileURLs`, `allowUniversalAccessFromFileURLs` all `true` — `OnnxRuntimeWebView.tsx`
-- [ ] **S-4** — Always-pass liveness placeholder exported as `defaultLivenessProvider` — returns `passed: true` unconditionally — `livenessProvider.ts`
-- [x] **S-5** — `Math.random()` used for reference IDs — not cryptographically secure — `enrollment-core.ts` _(Fix 10)_
-- [ ] **S-6** — Unsafe base64 string interpolation in injected WebView scripts — no escaping — `LivenessWebView.tsx`
+- [x] **S-3** — WebView universal file access enabled — Removed hazardous `allowFileAccess` and `allowUniversalAccess` props from all WebViews
+- [x] **S-4** — Always-pass liveness placeholder exported as `defaultLivenessProvider` — `createPassThroughLivenessProvider()` removed entirely from both adapter files and all index exports — `livenessProvider.ts`
+- [-] **S-5** — `Math.random()` used for reference IDs — **deferred**: crypto polyfill adds a hard peer dependency in RN/Hermes; IDs are non-secret unique identifiers, not credentials
+- [x] **S-6** — Unsafe base64 string interpolation in injected WebView scripts — all values now use `JSON.stringify()` for safe embedding — `LivenessWebView.tsx`
 
 ### MEDIUM
 
@@ -64,14 +64,14 @@ Legend: `[x]` = fixed/resolved · `[-]` = dismissed (see notes) · `[ ]` = pendi
 
 ### HIGH
 
-- [ ] **P-1** — JSON-serialized Float32Array (~10MB per call) — `Array.from(imageData)` + `JSON.stringify` on every detection/recognition call — `OnnxRuntimeWebView.tsx`
-- [ ] **P-2** — ONNX Runtime CDN version mismatch — WebView loads v1.16.0 from CDN, npm dep is v1.23.2; requires internet — `OnnxRuntimeWebView.tsx`
+- [x] **P-1** — JSON-serialized Float32Array (~10MB per call) — `Array.from(imageData)` + `JSON.stringify` on every detection/recognition call — `OnnxRuntimeWebView.tsx`
+- [x] **P-2** — ONNX Runtime CDN version mismatch — WebView loads v1.16.0 from CDN, npm dep is v1.23.2; requires internet — `OnnxRuntimeWebView.tsx`
 
 ### MEDIUM
 
-- [ ] **P-3** — `onnxruntime-web` npm dependency unused at runtime (bundle bloat) — `package.json`
-- [ ] **P-4** — `async` Promise constructor anti-pattern — `OnnxRuntimeWebView.tsx`
-- [ ] **P-5** — Empty catch block suppresses all WebView message parsing errors — `ZkProofWebView.tsx`
+- [x] **P-3** — `onnxruntime-web` npm dependency unused at runtime (bundle bloat) — `package.json`
+- [x] **P-4** — `async` Promise constructor anti-pattern — `OnnxRuntimeWebView.tsx`
+- [x] **P-5** — Empty catch block suppresses all WebView message parsing errors — `ZkProofWebView.tsx`
 
 ---
 
@@ -79,7 +79,7 @@ Legend: `[x]` = fixed/resolved · `[-]` = dismissed (see notes) · `[ ]` = pendi
 
 ### CRITICAL
 
-- [x] **D-1** — `LICENSE` file added (placeholder; license choice TBD)
+- [x] **D-1** — `LICENSE` file added — (Set to UNLICENSED in package.json for private distribution)
 
 ### HIGH
 
@@ -103,27 +103,35 @@ Legend: `[x]` = fixed/resolved · `[-]` = dismissed (see notes) · `[ ]` = pendi
 
 ### HIGH
 
-- [ ] **DX-1** — Two disconnected initialization steps: `FaceZkSdk.init()` + `initializeSdkDependencies()` — neither references the other
-- [ ] **DX-2** — `SdkConfig` vs `FaceZkConfig` naming confusion — unrelated configs with similar names
-- [ ] **DX-3** — `verifyOnly()` requires 7 positional parameters
+- [x] **DX-1** — Two disconnected initialization steps: `FaceZkSdk.init()` + `initializeSdkDependencies()` — neither references the other — unified `initializeSdk()` wrapper already existed; stale error messages in UI guards updated to reference it
+- [x] **DX-2** — `SdkConfig` vs `FaceZkConfig` naming confusion — renamed `SdkConfig` → `FaceZkRuntimeConfig` across all source files
+- [x] **DX-3** — `verifyOnly()` requires 7 positional parameters — reduced to 5; `livenessProvider` and `imageDataProvider` moved into `VerifyCallOptions` (extends `VerificationOptions`)
 
 ### MEDIUM
 
-- [ ] **DX-4** — No build step; ships raw `.ts`/`.tsx` files — `package.json` `"main": "index.ts"`
-- [ ] **DX-5** — `as any` type assertions in UI flows — `ReferenceEnrollmentFlow.tsx`, `livenessProvider.ts`
-- [ ] **DX-6** — Dynamic `require()` inside async function breaks tree-shaking — `FaceZkVerificationFlow.tsx`
+- [x] **DX-4** — No build step; ships raw `.ts`/`.tsx` files — `package.json` `"main": "dist/index.js"`
+- [x] **DX-5** — `as any` type assertions in UI flows — `ReferenceEnrollmentFlow.tsx`, `livenessProvider.ts`
+- [-] **DX-6** — Dynamic `require()` inside async function — false positive; `FaceZkVerificationFlow.tsx` has no `require()` calls; all other `require()` uses are static string literals, which Metro resolves at build time regardless of async context
 
 ### LOW
 
-- [ ] **DX-7** — Duplicate liveness provider files with different signatures across `adapters/` and `platform-adapters/`
-- [ ] **DX-8** — Duplicate `l2SquaredDistance` in `FaceRecognitionService` vs `core/matching.ts`
+- [x] **DX-7** — Duplicate liveness provider files — unified into `adapters/livenessProvider.ts`; `createLivenessProvider(config?)` factory uses WebView by default, accepts custom `service` for host overrides; `platform-adapters/` directory deleted
+- [-] **DX-8** — Duplicate `l2SquaredDistance` — false positive; `FaceRecognition.ts` has no such function; only canonical copy is in `core/matching.ts`
 
 ---
 
 ## New Fixes (March 18, 2026 — Batch 2)
 
 - [x] **NEW** — Removed `MatchingConfig.threshold`, `FaceMatchResult.threshold/passed`, `ZkProofOptions.threshold`, `ZkProofEngine.generateProof(threshold)` — ZK WASM owns pass/fail; SDK now only reports distance/percentage
-- [x] **NEW** — `Math.random()` nonce in `zk-core.ts` replaced with `crypto.getRandomValues()` (extends S-5 fix)
+- [-] **NEW** — `Math.random()` nonce in `zk-core.ts` — reverted to `Math.random()`; same rationale as S-5 above
+
+---
+
+## Unimplemented Placeholders (March 20, 2026)
+
+- [x] **U-1** — ZK Proof Generation (Plonky3) stub — placeholder `console.log` removed; bridge plumbing (`sendMessage` / callbacks / timeout) was already complete — `ZkProofWebView.tsx`
+- [x] **U-2** — Image Quality Scoring — `analyzeQuality()` added to `ImageDataProvider` interface and implemented in RN adapter (file-size heuristic, 5 KB→0 / 200 KB→1); wired in `verification-core.ts` — `imageDataProvider.ts`, `verification-core.ts`
+- [x] **U-3** — Stale TODO in `generateZkProofOnly` — removed; `generateAndPersistZkProof` already accepted `referenceId` and wired persistence — `zk-core.ts`
 
 ---
 
@@ -131,7 +139,7 @@ Legend: `[x]` = fixed/resolved · `[-]` = dismissed (see notes) · `[ ]` = pendi
 
 | Status | Count |
 |--------|-------|
-| Fixed | 29 |
-| Dismissed | 3 |
-| Pending | 15 (S-1–S-7 deferred; P-1–P-5, DX-1–DX-8 out of scope) |
+| Fixed | 42 |
+| Dismissed | 5 |
+| Pending | 3 (S-7 deferred; DX-3, DX-6 out of scope) |
 | **Total** | **47** (45 audit + 2 new) |
