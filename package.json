@@ -45,7 +45,7 @@
     "liveness"
   ],
   "author": "Jupiter Meta Labs",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "dependencies": {
     "buffer": "^6.0.3",
     "jpeg-js": "^0.4.4"
