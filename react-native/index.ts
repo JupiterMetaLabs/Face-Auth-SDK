@@ -20,8 +20,16 @@ import {
 } from "./dependencies";
 import type { FaceZkConfig } from "../config/types";
 
-export { FaceZkSdk } from "../FaceZkSdk";
-export { clearModelCache } from "./utils/resolveModelUri";
+// FaceZkSdk class is intentionally NOT re-exported here.
+// React Native apps should use initializeSdk() and resetSdk() below,
+// which wire up RN-specific dependencies (file system, model cache) before
+// calling FaceZkSdk.init(). Bypassing that step causes model loading to fail.
+export { clearModelCache, resolveModelUri } from "./utils/resolveModelUri";
+export {
+  modelInitialisationChecks,
+  type ModelReadinessResult,
+  type ModelKey,
+} from "./utils/modelInitialisationChecks";
 
 /**
  * Initialize the SDK in one call.

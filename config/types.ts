@@ -17,7 +17,7 @@
 export interface ModelSource {
   /** Result of require('./assets/model.onnx') – bundled asset, resolved by Metro. */
   module?: any;
-  /** Remote URL to download from at runtime (cached in FileSystem.cacheDirectory). */
+  /** Remote URL to download from at runtime (stored persistently in FileSystem.documentDirectory). */
   url?: string;
   /** Already-resolved local file URI (e.g., file:///data/user/0/.../model.onnx). */
   localUri?: string;
