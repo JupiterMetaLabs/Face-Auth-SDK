@@ -4,8 +4,8 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@jmdt/face-zk-sdk": ["../index.ts"],
-      "@jmdt/face-zk-sdk/react-native": ["../react-native/index.ts"]
+      "@jupitermetalabs/face-zk-sdk": ["../index.ts"],
+      "@jupitermetalabs/face-zk-sdk/react-native": ["../react-native/index.ts"]
     }
   },
   "include": [

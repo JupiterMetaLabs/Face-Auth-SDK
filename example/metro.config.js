@@ -33,7 +33,7 @@ config.resolver.nodeModulesPaths = [
 config.resolver.disableHierarchicalLookup = true;
 
 // Resolve symlinks to real paths so the same physical file is never
-// registered as two separate modules (e.g. @jmdt/face-zk-sdk symlink vs
+// registered as two separate modules (e.g. @jupitermetalabs/face-zk-sdk symlink vs
 // the real workspace path). Without this, singleton state (FaceZkSdk._state)
 // ends up split across two module instances and the app silently breaks.
 config.resolver.unstable_enableSymlinks = true;

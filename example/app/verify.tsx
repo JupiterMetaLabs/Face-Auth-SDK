@@ -22,8 +22,8 @@ import type {
   FaceZkRuntimeConfig,
   VerificationOutcome,
   FaceEmbeddingProvider,
-} from "@jmdt/face-zk-sdk/react-native";
-import { FaceZkVerificationFlow } from "@jmdt/face-zk-sdk/react-native";
+} from "@jupitermetalabs/face-zk-sdk/react-native";
+import { FaceZkVerificationFlow } from "@jupitermetalabs/face-zk-sdk/react-native";
 import { getExampleVerificationOptions } from "../src/sdkRuntime/faceZkSdkExample";
 
 interface ExampleRuntime {

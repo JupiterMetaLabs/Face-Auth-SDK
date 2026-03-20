@@ -250,7 +250,7 @@ async function main() {
   log("");
   log("  2. Initialize the SDK before your root component renders:");
   log("     ─────────────────────────────────────────────────────────────────────");
-  log("     import { FaceZkSdk } from '@jmdt/face-zk-sdk';");
+  log("     import { FaceZkSdk } from '@jupitermetalabs/face-zk-sdk';");
   log("");
   log("     await FaceZkSdk.init({");
   log("       models: {");

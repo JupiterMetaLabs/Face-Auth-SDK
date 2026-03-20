@@ -32,7 +32,7 @@ import {
   getExampleSdkRuntime,
   getIsTestModeFromEnv,
 } from "../src/sdkRuntime/faceZkSdkExample";
-import type { ReferenceTemplate } from "@jmdt/face-zk-sdk";
+import type { ReferenceTemplate } from "@jupitermetalabs/face-zk-sdk";
 
 type ExampleStage = "FORM" | "ENROLL" | "VERIFY" | "DONE";
 

@@ -1,4 +1,4 @@
-# Core Module (`@jmdt/face-zk-sdk/core`)
+# Core Module (`@jupitermetalabs/face-zk-sdk/core`)
 
 The `core` module contains the pure, platform-independent business logic of the Face+ZK SDK. It is responsible for all cryptographic and mathematical operations, ensuring that they can run seamlessly in any JavaScript environment (Web, Node, or React Native via polyfills).
 

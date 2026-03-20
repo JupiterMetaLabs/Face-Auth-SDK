@@ -18,7 +18,7 @@
  * Main entry point for the Face+ZK SDK core functionality.
  * This provides headless (non-UI) APIs for face verification and ZK proofs.
  *
- * For React Native UI components, import from '@jmdt/face-zk-sdk/react-native'
+ * For React Native UI components, import from '@jupitermetalabs/face-zk-sdk/react-native'
  */
 
 // ============================================================================

@@ -37,7 +37,7 @@ To keep documentation clean, each major module has its own dedicated documentati
 
 2. Install dependencies in your host app:
    ```bash
-   npm install @jmdt/face-zk-sdk
+   npm install @jupitermetalabs/face-zk-sdk
    ```
 
 ## Detailed Configuration Reference
@@ -119,7 +119,7 @@ module.exports = config;
 ### 1. Initialize the SDK
 Call once at app startup:
 ```typescript
-import { initializeSdk } from '@jmdt/face-zk-sdk/react-native';
+import { initializeSdk } from '@jupitermetalabs/face-zk-sdk/react-native';
 
 await initializeSdk({
   models: {
@@ -135,7 +135,7 @@ await initializeSdk({
 ### 2. Build a `FaceZkRuntimeConfig`
 Pass this to the UI components or headless core functions to control liveness, ZK, storage, and logging:
 ```typescript
-import type { FaceZkRuntimeConfig } from '@jmdt/face-zk-sdk/react-native';
+import type { FaceZkRuntimeConfig } from '@jupitermetalabs/face-zk-sdk/react-native';
 
 const sdkConfig: FaceZkRuntimeConfig = {
   liveness: { enabled: true },
@@ -147,7 +147,7 @@ const sdkConfig: FaceZkRuntimeConfig = {
 ### 3. Liveness Provider
 The SDK ships with a built-in WebView liveness provider. Use the unified factory:
 ```typescript
-import { createLivenessProvider } from '@jmdt/face-zk-sdk/react-native';
+import { createLivenessProvider } from '@jupitermetalabs/face-zk-sdk/react-native';
 
 // Default — uses the SDK's built-in WebView anti-spoof result
 const provider = createLivenessProvider({ spoofScore: metadata.spoofScore });

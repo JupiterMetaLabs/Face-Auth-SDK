@@ -30,7 +30,7 @@ import {
   modelInitialisationChecks,
   resolveModelUri,
   type FaceZkModelsConfig,
-} from "@jmdt/face-zk-sdk/react-native";
+} from "@jupitermetalabs/face-zk-sdk/react-native";
 
 // ── Model config ─────────────────────────────────────────────────────────────
 // Using locally bundled assets. When you're ready to ship without bundling
