@@ -102,8 +102,6 @@ export class ZkProofBridge implements ZkProofBridgeInterface {
         embedding2: number[],
         nonce: number
     ): Promise<{ proof: string; publicInputs: string[] }> {
-        console.log('[ZkProofBridge] generateProof - Plonky placeholder');
-
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 reject(new Error('Proof generation timeout'));
@@ -264,7 +262,9 @@ export const ZkProofWebView: React.FC<ZkProofWebViewProps> = ({
                     onReady(bridgeRef.current);
                 }
             }
-        } catch (e) { }
+        } catch (e) { 
+            console.error('[ZkProofWebView] Message parse error:', e);
+        }
     };
 
     const handleWebViewLoad = () => {
@@ -285,6 +285,8 @@ export const ZkProofWebView: React.FC<ZkProofWebViewProps> = ({
         <View style={styles.hidden}>
             <WebView
                 ref={webViewRef}
+                // CRITICAL: baseUrl must be https://localhost to provide a Secure Context for WebAssembly logic.
+                // It does NOT make actual network requests, but prevents the WebView from throwing security errors.
                 source={{ html: wasmData.workerHtml, baseUrl: 'https://localhost' }}
                 onMessage={handleMessage}
                 onLoad={handleWebViewLoad}

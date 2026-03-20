@@ -13,7 +13,7 @@ import type {
   LiveCaptureResult,
   LivenessResult,
   VerificationOutcome,
-  SdkConfig,
+  FaceZkRuntimeConfig,
   VerificationOptions,
   SdkError,
   FaceMatchResult,
@@ -57,6 +57,14 @@ export interface ImageDataProvider {
    * @returns Size in bytes
    */
   getFileSizeBytes(imageUri: string): Promise<number>;
+
+  /**
+   * Estimate an image quality score (0–1, higher = better).
+   * Implementation is platform-specific; a file-size heuristic is acceptable.
+   * @param imageUri URI of the image
+   * @returns Quality score between 0 and 1
+   */
+  analyzeQuality?(imageUri: string): Promise<number>;
 }
 
 /**
@@ -68,7 +76,7 @@ export interface ImageDataProvider {
  */
 async function resolveReference(
   reference: ReferenceTemplate | ReferenceTemplateInput | ReferenceId,
-  sdkConfig: SdkConfig,
+  sdkConfig: FaceZkRuntimeConfig,
 ): Promise<ReferenceTemplate> {
   // If it's already a ReferenceTemplate, return as-is
   if (
@@ -144,7 +152,7 @@ async function resolveReference(
 async function computeLiveCapture(
   liveImageUri: string,
   embeddingProvider: FaceEmbeddingProvider,
-  sdkConfig: SdkConfig,
+  sdkConfig: FaceZkRuntimeConfig,
   options?: VerificationOptions,
   imageDataProvider?: ImageDataProvider,
 ): Promise<LiveCaptureResult> {
@@ -215,15 +223,8 @@ async function computeLiveCapture(
       }
     }
 
-    // Quality score would require additional analysis
-    // For now, we don't implement it (could be added later based on image properties)
-    if (qualityScore) {
-      sdkConfig.onLog?.({
-        level: "debug",
-        message: "Quality score requested but not yet implemented",
-      });
-      // Quality scoring would also require imageDataProvider with quality analysis
-      // imageInfo.qualityScore = await imageDataProvider.analyzeQuality(imageUri);
+    if (qualityScore && imageDataProvider?.analyzeQuality) {
+      imageInfo.qualityScore = await imageDataProvider.analyzeQuality(liveImageUri);
     }
   } else if (options?.includeImageData && !imageDataProvider) {
     sdkConfig.onLog?.({
@@ -244,10 +245,10 @@ async function computeLiveCapture(
  * Merge verification options with SDK config.
  */
 function mergeConfig(
-  sdkConfig: SdkConfig,
+  sdkConfig: FaceZkRuntimeConfig,
   options: VerificationOptions,
-): SdkConfig {
-  const merged: SdkConfig = { ...sdkConfig };
+): FaceZkRuntimeConfig {
+  const merged: FaceZkRuntimeConfig = { ...sdkConfig };
 
   // Merge liveness config
   if (options.liveness && sdkConfig.liveness) {
@@ -267,34 +268,48 @@ function mergeConfig(
 }
 
 /**
- * Verify face match only (no ZK proof).
+ * Per-call options for {@link verifyOnly} and {@link verifyWithProof}.
+ * Extends {@link VerificationOptions} with optional provider overrides for this call.
+ */
+export interface VerifyCallOptions extends VerificationOptions {
+  /** Liveness provider for this call. */
+  livenessProvider?: LivenessProvider;
+  /** Image-data provider for this call (base64, size, quality). */
+  imageDataProvider?: ImageDataProvider;
+}
+
+/**
+ * Performs a face match verification without generating a Zero-Knowledge proof.
  *
- * This function:
- * 1. Resolves the reference (template, input, or ID)
- * 2. Computes live capture (embedding + pose)
- * 3. Runs liveness checks (if enabled)
- * 4. Computes face match result
- * 5. Returns verification outcome
+ * This function orchestrates the standard verification pipeline:
+ * 1. Resolves the enrolled `ReferenceTemplate`.
+ * 2. Captures and extracts the live facial embedding via `FaceEmbeddingProvider`.
+ * 3. Evaluates anti-spoofing via the optional `LivenessProvider`.
+ * 4. Computes the raw L2² distance.
  *
- * @param reference Reference template, input, or ID
- * @param liveImageUri URI of the live capture image
- * @param sdkConfig SDK configuration
- * @param embeddingProvider Face embedding provider
- * @param livenessProvider Optional liveness provider
- * @param imageDataProvider Optional image data provider (for base64/sizeKb)
- * @param options Per-call verification options
- * @returns Verification outcome with match result and optional liveness
+ * **Security Warning:** This bypasses the cryptographic ZK verification. The `success` boolean returned here is based *only* on the liveness result (if enabled). Because the threshold API was removed in v3.0, the SDK does not natively fail the match here; your application logic must interpret the `FaceMatchResult` manually if you choose not to use `verifyWithProof`.
+ *
+ * @param {ReferenceTemplate | ReferenceTemplateInput | ReferenceId} reference - The enrolled identity to compare against.
+ * @param {string} liveImageUri - URI of the live capture frame.
+ * @param {FaceZkRuntimeConfig} sdkConfig - Global SDK Configuration.
+ * @param {FaceEmbeddingProvider} embeddingProvider - Platform adapter for extracting embeddings.
+ * @param {VerifyCallOptions} [options={}] - Per-call options: config overrides plus optional liveness and image-data providers.
+ * @returns {Promise<VerificationOutcome>} The completed outcome including the fractional match percentage.
+ *
+ * @example
+ * const outcome = await verifyOnly(refId, 'file:///live.jpg', config, embedProv);
+ * @example With providers
+ * const outcome = await verifyOnly(refId, uri, config, embedProv, { livenessProvider, liveness: { enabled: true } });
  */
 export async function verifyOnly(
   reference: ReferenceTemplate | ReferenceTemplateInput | ReferenceId,
   liveImageUri: string,
-  sdkConfig: SdkConfig,
+  sdkConfig: FaceZkRuntimeConfig,
   embeddingProvider: FaceEmbeddingProvider,
-  livenessProvider?: LivenessProvider,
-  imageDataProvider?: ImageDataProvider,
-  options: VerificationOptions = {},
+  options: VerifyCallOptions = {},
 ): Promise<VerificationOutcome> {
-  const config = mergeConfig(sdkConfig, options);
+  const { livenessProvider, imageDataProvider, ...configOptions } = options;
+  const config = mergeConfig(sdkConfig, configOptions);
 
   config.onLog?.({
     level: "info",
@@ -405,33 +420,36 @@ export async function verifyOnly(
 }
 
 /**
- * Verify face match with ZK proof generation.
+ * Performs a high-security face match verification backed by a Zero-Knowledge proof.
  *
- * This function extends verifyOnly by:
- * 1. Running all the same steps as verifyOnly
- * 2. Generating a ZK proof of the match
- * 3. Verifying the proof
- * 4. Including the proof in the outcome
+ * This is the primary verification gateway. It executes the standard pipeline (via `verifyOnly`) and then funnels the resulting exact embeddings into the ZK WASM circuit.
  *
- * @param reference Reference template, input, or ID
- * @param liveImageUri URI of the live capture image
- * @param sdkConfig SDK configuration (must have zk.enabled = true)
- * @param embeddingProvider Face embedding provider
- * @param livenessProvider Optional liveness provider
- * @param imageDataProvider Optional image data provider (for base64/sizeKb)
- * @param options Per-call verification options
- * @returns Verification outcome with match result, optional liveness, and ZK proof
+ * **Crypto/ZK Context:** The circuit mathematically guarantees that:
+ * 1. The distance between the live and reference embeddings is strictly less than the compiled threshold.
+ * 2. The computation was executed faithfully.
+ * If this condition is not met, the cryptographic verification fails, and `zkOutcome.success` is forced to `false` (assuming `zk.requiredForSuccess` is true).
+ *
+ * @param {ReferenceTemplate | ReferenceTemplateInput | ReferenceId} reference - The enrolled identity to verify.
+ * @param {string} liveImageUri - URI of the live capture frame.
+ * @param {FaceZkRuntimeConfig} sdkConfig - Global SDK configuration requiring `zk.enabled = true`.
+ * @param {FaceEmbeddingProvider} embeddingProvider - Platform adapter for extracting embeddings.
+ * @param {VerifyCallOptions} [options={}] - Per-call options: config overrides plus optional liveness and image-data providers.
+ * @returns {Promise<VerificationOutcome>} The completed outcome, containing the `ZkProofSummary` and cryptographic success state.
+ *
+ * @example
+ * const outcome = await verifyWithProof(refId, uri, config, embedProv);
+ * @example With liveness provider
+ * const outcome = await verifyWithProof(refId, uri, config, embedProv, { livenessProvider });
  */
 export async function verifyWithProof(
   reference: ReferenceTemplate | ReferenceTemplateInput | ReferenceId,
   liveImageUri: string,
-  sdkConfig: SdkConfig,
+  sdkConfig: FaceZkRuntimeConfig,
   embeddingProvider: FaceEmbeddingProvider,
-  livenessProvider?: LivenessProvider,
-  imageDataProvider?: ImageDataProvider,
-  options: VerificationOptions = {},
+  options: VerifyCallOptions = {},
 ): Promise<VerificationOutcome> {
-  const config = mergeConfig(sdkConfig, options);
+  const { livenessProvider, imageDataProvider, ...configOptions } = options;
+  const config = mergeConfig(sdkConfig, configOptions);
 
   // If ZK is not enabled, fall back to verify-only (match without proof)
   if (!config.zk?.enabled) {
@@ -441,15 +459,7 @@ export async function verifyWithProof(
       context: { stage: "zk_validation" },
     });
 
-    return verifyOnly(
-      reference,
-      liveImageUri,
-      config,
-      embeddingProvider,
-      livenessProvider,
-      imageDataProvider,
-      options,
-    );
+    return verifyOnly(reference, liveImageUri, sdkConfig, embeddingProvider, options);
   }
 
   // config.zk is guaranteed defined here — the early return above exits if !config.zk?.enabled
@@ -462,15 +472,7 @@ export async function verifyWithProof(
   });
 
   // First, run normal verification
-  const outcome = await verifyOnly(
-    reference,
-    liveImageUri,
-    config,
-    embeddingProvider,
-    livenessProvider,
-    imageDataProvider,
-    options,
-  );
+  const outcome = await verifyOnly(reference, liveImageUri, sdkConfig, embeddingProvider, options);
 
   // If verification failed before matching, return early
   if (!outcome.match || !outcome.reference || !outcome.live) {

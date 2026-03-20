@@ -333,15 +333,15 @@ export interface SdkLogger {
 // 3.4 Global SDK Config + Per-Call Overrides
 // ----------------------------------------------------------------------------
 
-/** Global SDK configuration */
-export interface SdkConfig extends SdkLogger {
+/** Global runtime configuration — controls liveness, ZK, storage, and logging for all SDK operations. */
+export interface FaceZkRuntimeConfig extends SdkLogger {
   liveness?: LivenessConfig;
   zk?: ZkConfig;
   storage?: StorageAdapter;
 }
 
 /**
- * Per-call override; shallow-partial of SdkConfig.
+ * Per-call override; shallow-partial of FaceZkRuntimeConfig.
  */
 export interface VerificationOptions {
   liveness?: Partial<LivenessConfig>;

@@ -10,7 +10,7 @@
  * - Optional ZK proof generation and verification
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -27,10 +27,11 @@ import type {
   ReferenceTemplateInput,
   ReferenceId,
   VerificationOutcome,
-  SdkConfig,
+  FaceZkRuntimeConfig,
   VerificationOptions,
   UiConfig,
   VerificationStage,
+  SdkError,
 } from "../../core/types";
 
 import { verifyOnly, verifyWithProof } from "../../core/verification-core";
@@ -39,6 +40,10 @@ import type {
   LivenessProvider,
 } from "../../core/verification-core";
 import { createZkProofEngineWebView } from "../adapters/zkProofEngine-webview";
+import type { ZkProofBridge } from "../components/ZkProofWebView";
+import { createLivenessProvider } from "../adapters/livenessProvider";
+
+import * as FileSystem from "expo-file-system/legacy";
 
 import { getSdkDependencies } from "../dependencies";
 import { resolveUiConfig, interpolate } from "../utils/resolveUiConfig";
@@ -49,7 +54,7 @@ import { FaceZkSdk } from "../../FaceZkSdk";
  */
 export interface FaceZkVerificationFlowProps {
   /** SDK configuration */
-  sdkConfig: SdkConfig;
+  sdkConfig: FaceZkRuntimeConfig;
 
   /** Reference to verify against (template, input, or ID) */
   reference: ReferenceTemplate | ReferenceTemplateInput | ReferenceId;
@@ -92,30 +97,34 @@ export interface FaceZkVerificationFlowProps {
   visible?: boolean;
 
   /** Custom overlay renderer for liveness */
-  renderOverlay?: (state: any) => React.ReactNode;
+  renderOverlay?: (state: unknown) => React.ReactNode;
 }
 
 /**
- * Face+ZK Verification Flow Component
+ * A drop-in React Native UI component orchestrating the complete Face+ZK verification lifecycle.
  *
- * Usage:
- * ```tsx
+ * This component handles the complex choreography between:
+ * 1. Loading reference templates and initializing cryptographic WASM engines.
+ * 2. Mounting the `ZkFaceAuth` camera view to capture liveness and extract embeddings.
+ * 3. Delegating the matched vectors to the background ZK engine to cryptographically prove identity.
+ *
+ * **UI Customization:** You can aggressively customize this flow using the `uiConfig` prop, appending your own brand colors, localized strings, or entirely replacing the rendering of different stages (Loading, Success, Error).
+ *
+ * @param {FaceZkVerificationFlowProps} props - Configuration for the UI and required platform adapters.
+ * @returns {React.FC} A safely encapsulated verification modal or inline view.
+ * 
+ * @example
  * <FaceZkVerificationFlow
- *   sdkConfig={sdkConfig}
- *   reference={referenceId}
+ *   sdkConfig={config}
+ *   reference={refId}
  *   mode="verify-with-proof"
- *   embeddingProvider={defaultFaceEmbeddingProvider}
- *   livenessProvider={defaultLivenessProvider}
+ *   embeddingProvider={provider}
  *   onComplete={(outcome) => {
  *     if (outcome.success) {
- *       console.log("Verified! Score:", outcome.score);
- *       console.log("ZK Hash:", outcome.zkProof?.hash);
- *     } else {
- *       console.log("Failed:", outcome.error?.message);
+ *       Alert.alert("Authorized", `Hash: ${outcome.zkProof.hash}`);
  *     }
  *   }}
  * />
- * ```
  */
 export const FaceZkVerificationFlow: React.FC<
   FaceZkVerificationFlowProps
@@ -137,8 +146,13 @@ export const FaceZkVerificationFlow: React.FC<
 }) => {
   const [stage, setStage] = useState<VerificationStage>("IDLE");
   const [bridgeReady, setBridgeReady] = useState(false);
-  const [zkBridge, setZkBridge] = useState<any | null>(null);
+  const [zkBridge, setZkBridge] = useState<ZkProofBridge | null>(null);
   const [outcome, setOutcome] = useState<VerificationOutcome | null>(null);
+
+  // Liveness result produced by ZkFaceAuth WebView (ONNX anti-spoof score + challenges).
+  // Stored in a ref so runVerification always reads the latest value without needing
+  // it in the dependency array.
+  const webViewLivenessProviderRef = useRef<LivenessProvider | null>(null);
 
   // Resolve theme + strings from uiConfig
   const ui = resolveUiConfig(uiConfig);
@@ -172,7 +186,7 @@ export const FaceZkVerificationFlow: React.FC<
           console.log("[FaceZkVerificationFlow] Models loaded, ready for liveness");
           setStage("LIVENESS");
         })
-        .catch((err: any) => {
+        .catch((err: unknown) => {
           console.error("[FaceZkVerificationFlow] Model loading failed:", err);
           handleError({
             code: "SYSTEM_ERROR",
@@ -188,27 +202,31 @@ export const FaceZkVerificationFlow: React.FC<
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
         <Text style={{ color: "#f97316", fontSize: 16, textAlign: "center" }}>
-          FaceZkSdk is not initialized.{"\n"}Call FaceZkSdk.init() before rendering this component.
+          FaceZkSdk is not initialized.{"\n"}Call initializeSdk() from '@jmdt/face-zk-sdk/react-native' before rendering this component.
         </Text>
       </View>
     );
   }
 
   // Initialize ONNX bridge for face recognition
-  const handleBridgeReady = (bridge: any) => {
+  const handleBridgeReady = (bridge: unknown) => {
     console.log("[FaceZkVerificationFlow] ONNX bridge ready");
     faceRecognitionService.setBridge(bridge);
     setBridgeReady(true);
   };
 
   // Initialize ZK Proof bridge
-  const handleZkBridgeReady = (bridge: any) => {
+  const handleZkBridgeReady = (bridge: ZkProofBridge) => {
     console.log("[FaceZkVerificationFlow] ZK bridge ready");
     setZkBridge(bridge);
   };
 
   // Handle liveness success (image captured)
-  const handleLivenessSuccess = async (imageUri: string) => {
+  const handleLivenessSuccess = async (imageUri: string, metadata?: { spoofScore?: number }) => {
+    // Build a LivenessProvider from the WebView's ONNX anti-spoof score so that
+    // verifyOnly / verifyWithProof can record the real result in VerificationOutcome.
+    const spoofScore: number = metadata?.spoofScore ?? 0; // 0 = real, 1 = spoof
+    webViewLivenessProviderRef.current = createLivenessProvider({ spoofScore });
     console.log("[FaceZkVerificationFlow] Liveness passed, image captured:", imageUri.substring(0, 80) + "...");
     setStage("CAPTURING");
 
@@ -217,7 +235,6 @@ export const FaceZkVerificationFlow: React.FC<
       // Expo ImageManipulator on Android cannot process data URIs – it needs a file:// path.
       let fileUri = imageUri;
       if (imageUri.startsWith("data:")) {
-        const FileSystem = require("expo-file-system/legacy");
         const base64Data = imageUri.split(",")[1];
         const tempPath = `${FileSystem.cacheDirectory}liveness_capture_${Date.now()}.jpg`;
         await FileSystem.writeAsStringAsync(tempPath, base64Data, {
@@ -242,6 +259,15 @@ export const FaceZkVerificationFlow: React.FC<
   // Handle liveness error
   const handleLivenessError = (message: string) => {
     console.error("[FaceZkVerificationFlow] Liveness error:", message);
+
+    // Perspective check failures mean the user's angle was wrong — recoverable.
+    // Silently retry rather than surfacing a hard error to the caller.
+    if (message.includes("Perspective Check Failed")) {
+      console.log("[FaceZkVerificationFlow] Perspective check failed — auto-retrying liveness");
+      handleRetry();
+      return;
+    }
+
     handleError({
       code: "LIVENESS_FAILED",
       message,
@@ -252,6 +278,12 @@ export const FaceZkVerificationFlow: React.FC<
   // Run verification
   const runVerification = async (imageUri: string) => {
     setStage("EMBEDDING");
+
+    // The WebView-derived provider carries the actual ONNX spoof score from the
+    // liveness session that just completed.  The prop-provided livenessProvider
+    // is used as a fallback for callers that bypass ZkFaceAuth entirely.
+    const effectiveLivenessProvider =
+      webViewLivenessProviderRef.current ?? livenessProvider;
 
     try {
       let result: VerificationOutcome;
@@ -265,9 +297,7 @@ export const FaceZkVerificationFlow: React.FC<
           imageUri,
           sdkConfig,
           embeddingProvider,
-          livenessProvider,
-          undefined,
-          verificationOptions,
+          { livenessProvider: effectiveLivenessProvider, ...verificationOptions },
         );
       } else {
         console.log("[FaceZkVerificationFlow] Running verify-with-proof");
@@ -276,10 +306,10 @@ export const FaceZkVerificationFlow: React.FC<
         // Dynamically build a ZK-enabled config from the bridge.
         // This lets the host app omit `zk.engine` in sdkConfig — the flow
         // creates the engine automatically from the mounted ZkProofWebView.
-        let zkSdkConfig = sdkConfig;
+        let zkFaceZkRuntimeConfig = sdkConfig;
         if (zkBridge && zkBridge.status === "ready") {
           const engine = createZkProofEngineWebView(zkBridge);
-          zkSdkConfig = {
+          zkFaceZkRuntimeConfig = {
             ...sdkConfig,
             zk: {
               enabled: true,
@@ -295,11 +325,9 @@ export const FaceZkVerificationFlow: React.FC<
         result = await verifyWithProof(
           reference,
           imageUri,
-          zkSdkConfig,
+          zkFaceZkRuntimeConfig,
           embeddingProvider,
-          livenessProvider,
-          undefined,
-          verificationOptions,
+          { livenessProvider: effectiveLivenessProvider, ...verificationOptions },
         );
 
         // Update stage for ZK proof generation
@@ -327,7 +355,7 @@ export const FaceZkVerificationFlow: React.FC<
     }
   };
 
-  const handleError = (error: any) => {
+  const handleError = (error: SdkError) => {
     const outcome: VerificationOutcome = {
       success: false,
       score: 0,

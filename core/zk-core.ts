@@ -10,36 +10,38 @@ import type {
   FloatVector,
   ZkProofSummary,
   ZkProofOptions,
-  SdkConfig,
+  FaceZkRuntimeConfig,
   SdkError,
   ZkProofEngine,
 } from "./types";
 
 /**
- * Generate a zero-knowledge proof from embeddings (standalone function).
+ * Generate a zero-knowledge proof from embeddings without running the full verification pipeline.
  *
- * This function is for advanced callers who:
- * - Already have reference and live embeddings
- * - Just want the ZK proof without running the full verification flow
+ * This function focuses strictly on the cryptographic generation mechanism using the provided ZK engine.
+ * It is designed for advanced integrations where the caller computes embeddings manually or handles their own camera lifecycles.
  *
- * Steps:
- * 1. Generate proof using the ZK engine
- * 2. Verify the proof locally
- * 3. Compute proof hash
- * 4. Optionally persist via storage adapter
- * 5. Return ZkProofSummary
+ * **ZK Context:** Plonky3 WASM circuits enforce that the Euclidean distance between `referenceEmbedding` and `liveEmbedding` does not exceed the globally compiled threshold. If it does, proof generation fails cryptographically, returning a structured `ZK_ERROR`.
  *
- * @param referenceEmbedding Reference face embedding
- * @param liveEmbedding Live face embedding
- * @param sdkConfig SDK configuration (must have zk.enabled = true)
- * @param options ZK proof options (threshold, optional nonce)
- * @returns ZK proof summary with proof, hash, and verification status
- * @throws SdkError if ZK is not enabled or proof generation fails
+ * @param {FloatVector} referenceEmbedding - Trusted reference face embedding.
+ * @param {FloatVector} liveEmbedding - Face embedding derived from the current live capture.
+ * @param {FaceZkRuntimeConfig} sdkConfig - Global SDK configuration requiring `zk.enabled = true` and an injected `zk.engine`.
+ * @param {ZkProofOptions} options - Options containing optional `nonce`. If missing, cryptographically secure nonce is auto-generated.
+ * @returns {Promise<ZkProofSummary>} Cryptographic proof, inputs, and the verified hash.
+ * @throws {SdkError} Throws `ZK_ERROR` if the embeddings do not meet the circuit threshold, if vectors mismatch, or if ZK is not enabled.
+ * 
+ * @example
+ * try {
+ *   const summary = await generateZkProofOnly(refEmbed, liveEmbed, config, {});
+ *   console.log(`Proof generated. Hash: ${summary.hash}`);
+ * } catch (error) {
+ *   console.error("Proof failed (threshold not met):", error);
+ * }
  */
 export async function generateZkProofOnly(
   referenceEmbedding: FloatVector,
   liveEmbedding: FloatVector,
-  sdkConfig: SdkConfig,
+  sdkConfig: FaceZkRuntimeConfig,
   options: ZkProofOptions,
 ): Promise<ZkProofSummary> {
   const { nonce } = options;
@@ -204,11 +206,6 @@ export async function generateZkProofOnly(
       },
     });
 
-    // Step 6: Optionally persist via storage adapter
-    // Note: We don't have referenceId here, so we skip persistence
-    // The caller can persist manually if needed
-    // TODO: Consider adding optional referenceId param to this function
-
     return summary;
   } catch (error) {
     const zkError: SdkError = {
@@ -235,23 +232,28 @@ export async function generateZkProofOnly(
 }
 
 /**
- * Helper function to generate a ZK proof and persist it.
+ * Helper function to generate a ZK proof and persist it securely using the active `StorageAdapter`.
  *
- * This is a convenience function that wraps generateZkProofOnly and
- * persists the proof via the storage adapter (if available).
+ * **Crypto Context:** The proof is persisted only if local verification against the generated public inputs passes. Unverified proofs will not be persisted to prevent storage poisoning.
  *
- * @param referenceId Reference ID for linking the proof
- * @param referenceEmbedding Reference face embedding
- * @param liveEmbedding Live face embedding
- * @param sdkConfig SDK configuration
- * @param options ZK proof options
- * @returns ZK proof summary and storage ID (if persisted)
+ * @param {string} referenceId - The opaque ID linking this proof to the enrolled reference.
+ * @param {FloatVector} referenceEmbedding - Trusted reference face embedding.
+ * @param {FloatVector} liveEmbedding - Live face embedding.
+ * @param {FaceZkRuntimeConfig} sdkConfig - SDK configuration including the configured `storage` adapter.
+ * @param {ZkProofOptions} options - Options containing optional `nonce`.
+ * @returns {Promise<{ summary: ZkProofSummary; proofId?: string }>} The generated ZK summary, and the storage handle if successfully persisted.
+ *
+ * @example
+ * const { summary, proofId } = await generateAndPersistZkProof(
+ *   'user-1234', refEmbed, liveEmbed, config, {}
+ * );
+ * console.log(`Proof stored under handle: ${proofId}`);
  */
 export async function generateAndPersistZkProof(
   referenceId: string,
   referenceEmbedding: FloatVector,
   liveEmbedding: FloatVector,
-  sdkConfig: SdkConfig,
+  sdkConfig: FaceZkRuntimeConfig,
   options: ZkProofOptions,
 ): Promise<{ summary: ZkProofSummary; proofId?: string }> {
   // Generate proof

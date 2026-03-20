@@ -9,7 +9,7 @@ import type {
   ReferenceTemplate,
   ReferenceId,
   EnrollmentOptions,
-  SdkConfig,
+  FaceZkRuntimeConfig,
   SdkError,
 } from "./types";
 import { isSdkError } from "./types";
@@ -44,22 +44,31 @@ function generateReferenceId(): ReferenceId {
 }
 
 /**
- * Create a reference template from an image URI.
+ * Creates a reference template from an image URI to be used in future verification attempts.
  *
- * This is the primary enrollment function. It:
- * 1. Processes the image to extract face embedding + pose
- * 2. Creates a ReferenceTemplate with a unique ID
- * 3. Optionally persists the template via StorageAdapter
+ * This is the primary enrollment function. It orchestrates:
+ * 1. Image processing to extract the facial embedding and head pose via the injected `FaceEmbeddingProvider`.
+ * 2. Creation of a `ReferenceTemplate` paired with a cryptographically safe `ReferenceId`.
+ * 3. Optional persistence of the template via the configured `StorageAdapter`.
  *
- * @param imageUri URI of the reference image (file:// or content://)
- * @param sdkConfig SDK configuration (including storage adapter)
- * @param options Enrollment options (metadata, persist flag)
- * @returns Reference template with embedding, pose, and ID
- * @throws SdkError if face detection/embedding extraction fails
+ * **Crypto/ZK Context:** The embedding generated here acts as the ground truth. When a user authenticates later, the ZK WASM circuit will prove that their live facial embedding matches this enrolled blueprint without storing the face image itself.
+ *
+ * @param {string} imageUri - URI of the reference image (e.g. `file://` or `content://`).
+ * @param {FaceZkRuntimeConfig} sdkConfig - Global SDK configuration requiring at least a working logger and optional storage adapter.
+ * @param {FaceEmbeddingProvider} embeddingProvider - The platform-specific adapter capable of running ONNX inference.
+ * @param {EnrollmentOptions} [options={}] - Options dictating metadata injection and whether to persist the result.
+ * @returns {Promise<ReferenceTemplate>} The enrolled identity containing the ID, embedding, and baseline pose.
+ * @throws {SdkError} Throws if no face is found, multiple faces are found, or pose estimation fails.
+ * 
+ * @example
+ * const template = await createReferenceFromImage(
+ *   'file:///tmp/face.jpg', config, provider, { persist: true }
+ * );
+ * console.log(`Enrolled ID: ${template.referenceId}`);
  */
 export async function createReferenceFromImage(
   imageUri: string,
-  sdkConfig: SdkConfig,
+  sdkConfig: FaceZkRuntimeConfig,
   embeddingProvider: FaceEmbeddingProvider,
   options: EnrollmentOptions = {},
 ): Promise<ReferenceTemplate> {
