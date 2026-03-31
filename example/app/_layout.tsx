@@ -40,12 +40,13 @@ const MODEL_CONFIG: FaceZkModelsConfig = {
   detection:    { module: require("../../assets/models/det_500m.onnx") },
   recognition:  { module: require("../../assets/models/w600k_mbf.onnx") },
   antispoof:    { module: require("../../assets/models/antispoof.onnx") },
+  ageGender:    { module: require("../../assets/models/genderage.onnx") },
   wasm:         { module: require("../../assets/wasm/zk_face_wasm_bg.wasm") },
   zkWorkerHtml: { module: require("../../assets/zk-worker.html") },
 };
 
-// How many models we'll download (all 5 configured above).
-const TOTAL_MODELS = 5;
+// How many models we'll download (all 6 configured above).
+const TOTAL_MODELS = 6;
 
 /**
  * Root layout for the SDK example flow.

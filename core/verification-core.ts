@@ -40,6 +40,7 @@ import { isSdkError } from "./types";
 import { computeFaceMatchResult } from "./matching";
 import type { FaceEmbeddingProvider } from "./enrollment-core";
 export type { FaceEmbeddingProvider };
+import { v7 as uuidv7 } from "uuid";
 
 /**
  * Interface for liveness provider.
@@ -254,6 +255,8 @@ async function computeLiveCapture(
     embedding: result.embedding,
     pose: result.pose,
     image: imageInfo,
+    gender: result.gender,
+    age: result.age,
   };
 }
 
@@ -507,7 +510,9 @@ export async function verifyWithProof(
       message: "Generating ZK proof",
     });
 
-    const nonce = Math.floor(Math.random() * 0xFFFFFFFF);
+    const uuid = uuidv7();
+    // Parse the last 8 characters of the UUID to use as a 32-bit nonce
+    const nonce = parseInt(uuid.slice(-8), 16);
     const startTime = Date.now();
 
     const { proof, publicInputs } = await config.zk.engine.generateProof(
@@ -612,7 +617,6 @@ export async function verifyWithProof(
 }
 
 function generateSecureId(prefix: string): string {
-  const random = Math.random().toString(36).slice(2, 10);
-  return `${prefix}_${Date.now()}_${random}`;
+  return `${prefix}_${uuidv7()}`;
 }
 

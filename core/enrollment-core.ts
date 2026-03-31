@@ -29,6 +29,7 @@ import type {
   SdkError,
 } from "./types";
 import { isSdkError } from "./types";
+import { v7 as uuidv7 } from "uuid";
 
 /**
  * Interface for face embedding provider.
@@ -46,6 +47,8 @@ export interface FaceEmbeddingProvider {
     embedding?: number[];
     pose?: { yaw: number; pitch: number; roll: number };
     message?: string;
+    gender?: "Male" | "Female" | "Unknown";
+    age?: number;
   }>;
 }
 
@@ -54,9 +57,7 @@ export interface FaceEmbeddingProvider {
  * Uses timestamp + random string for uniqueness.
  */
 function generateReferenceId(): ReferenceId {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).slice(2, 10);
-  return `ref_${timestamp}_${random}`;
+  return `ref_${uuidv7()}`;
 }
 
 /**

@@ -6,6 +6,7 @@ A standalone React Native and Web SDK for face verification and Zero-Knowledge (
 
 - **Face Matching**: High-accuracy face embedding comparison.
 - **Liveness Detection**: Interactive liveness checks with antispoofing protection.
+- **Demographic Analysis**: Optional age and gender estimations alongside captures.
 - **ZK Proofs**: Generate and verify cryptographic proofs of identity without revealing facial biometric data.
 - **Platform Agnostic**: Works on iOS, Android (via Expo), and Web.
 
@@ -126,6 +127,7 @@ await initializeSdk({
     detection:    { module: require('./assets/models/det_500m.onnx') },
     recognition:  { module: require('./assets/models/w600k_mbf.onnx') },
     antispoof:    { module: require('./assets/models/antispoof.onnx') },
+    ageGender:    { module: require('./assets/models/genderage.onnx') },
     wasm:         { module: require('./assets/wasm/zk_face_wasm_bg.wasm') },
     zkWorkerHtml: { module: require('./assets/zk-worker.html') },
   },

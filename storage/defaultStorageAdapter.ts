@@ -17,15 +17,15 @@
 /**
  * Default Storage Adapter for React Native
  *
- * Implements the StorageAdapter interface using AsyncStorage for metadata
+ * Implements the StorageAdapter interface using react-native-keychain for metadata
  * and FileSystem for larger data (embeddings, proofs).
  *
  * Storage strategy:
- * - Reference templates: AsyncStorage (embeddings are ~2KB, well under 2MB limit)
+ * - Reference templates: Keychain (embeddings are securely encrypted)
  * - ZK proofs: FileSystem (proofs can be large)
  */
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Keychain from "react-native-keychain";
 import * as FileSystem from "expo-file-system/legacy";
 
 import type {
@@ -81,10 +81,10 @@ async function ensureDirectoriesExist(): Promise<void> {
 }
 
 /**
- * Create a default storage adapter using AsyncStorage and FileSystem.
+ * Create a default storage adapter using react-native-keychain and FileSystem.
  *
  * This implementation:
- * - Stores reference templates in AsyncStorage (small, fast access)
+ * - Stores reference templates in Keychain (secure, hardware-backed)
  * - Stores ZK proofs in FileSystem (large, persistent)
  * - Maintains indices for listing all stored items
  *
@@ -103,8 +103,8 @@ export function createDefaultStorageAdapter(): StorageAdapter {
         // Serialize template to JSON
         const json = JSON.stringify(template);
 
-        // Store in AsyncStorage
-        await AsyncStorage.setItem(key, json);
+        // Store in Keychain
+        await Keychain.setGenericPassword("face_zk_user", json, { service: key });
 
         // Update index
         await updateReferenceIndex(template.referenceId, "add");
@@ -131,7 +131,8 @@ export function createDefaultStorageAdapter(): StorageAdapter {
       const key = `${STORAGE_KEYS.REFERENCE_PREFIX}${referenceId}`;
 
       try {
-        const json = await AsyncStorage.getItem(key);
+        const credentials = await Keychain.getGenericPassword({ service: key });
+        const json = credentials ? credentials.password : null;
 
         if (!json) {
           console.log(
@@ -160,7 +161,7 @@ export function createDefaultStorageAdapter(): StorageAdapter {
       const key = `${STORAGE_KEYS.REFERENCE_PREFIX}${referenceId}`;
 
       try {
-        await AsyncStorage.removeItem(key);
+        await Keychain.resetGenericPassword({ service: key });
 
         // Update index
         await updateReferenceIndex(referenceId, "remove");
@@ -256,7 +257,8 @@ async function updateReferenceIndex(
   action: "add" | "remove",
 ): Promise<void> {
   try {
-    const indexJson = await AsyncStorage.getItem(STORAGE_KEYS.REFERENCE_INDEX);
+    const credentials = await Keychain.getGenericPassword({ service: STORAGE_KEYS.REFERENCE_INDEX });
+    const indexJson = credentials ? credentials.password : null;
     const index: ReferenceId[] = indexJson ? JSON.parse(indexJson) : [];
 
     if (action === "add") {
@@ -270,9 +272,10 @@ async function updateReferenceIndex(
       }
     }
 
-    await AsyncStorage.setItem(
-      STORAGE_KEYS.REFERENCE_INDEX,
+    await Keychain.setGenericPassword(
+      "face_zk_user",
       JSON.stringify(index),
+      { service: STORAGE_KEYS.REFERENCE_INDEX }
     );
   } catch (error) {
     console.error("[DefaultStorageAdapter] Error updating reference index:", error);
@@ -287,7 +290,8 @@ async function updateProofIndex(
   action: "add" | "remove",
 ): Promise<void> {
   try {
-    const indexJson = await AsyncStorage.getItem(STORAGE_KEYS.PROOF_INDEX);
+    const credentials = await Keychain.getGenericPassword({ service: STORAGE_KEYS.PROOF_INDEX });
+    const indexJson = credentials ? credentials.password : null;
     const index: string[] = indexJson ? JSON.parse(indexJson) : [];
 
     if (action === "add") {
@@ -301,7 +305,7 @@ async function updateProofIndex(
       }
     }
 
-    await AsyncStorage.setItem(STORAGE_KEYS.PROOF_INDEX, JSON.stringify(index));
+    await Keychain.setGenericPassword("face_zk_user", JSON.stringify(index), { service: STORAGE_KEYS.PROOF_INDEX });
   } catch (error) {
     console.error("[DefaultStorageAdapter] Error updating proof index:", error);
   }
@@ -312,7 +316,8 @@ async function updateProofIndex(
  */
 export async function getAllReferenceIds(): Promise<ReferenceId[]> {
   try {
-    const indexJson = await AsyncStorage.getItem(STORAGE_KEYS.REFERENCE_INDEX);
+    const credentials = await Keychain.getGenericPassword({ service: STORAGE_KEYS.REFERENCE_INDEX });
+    const indexJson = credentials ? credentials.password : null;
     return indexJson ? JSON.parse(indexJson) : [];
   } catch (error) {
     console.error("[DefaultStorageAdapter] Error getting reference index:", error);
@@ -325,7 +330,8 @@ export async function getAllReferenceIds(): Promise<ReferenceId[]> {
  */
 export async function getAllProofIds(): Promise<string[]> {
   try {
-    const indexJson = await AsyncStorage.getItem(STORAGE_KEYS.PROOF_INDEX);
+    const credentials = await Keychain.getGenericPassword({ service: STORAGE_KEYS.PROOF_INDEX });
+    const indexJson = credentials ? credentials.password : null;
     return indexJson ? JSON.parse(indexJson) : [];
   } catch (error) {
     console.error("[DefaultStorageAdapter] Error getting proof index:", error);
@@ -344,11 +350,11 @@ export async function clearAllStorage(): Promise<void> {
     // Delete all references
     for (const refId of referenceIds) {
       const key = `${STORAGE_KEYS.REFERENCE_PREFIX}${refId}`;
-      await AsyncStorage.removeItem(key);
+      await Keychain.resetGenericPassword({ service: key });
     }
 
     // Clear reference index
-    await AsyncStorage.removeItem(STORAGE_KEYS.REFERENCE_INDEX);
+    await Keychain.resetGenericPassword({ service: STORAGE_KEYS.REFERENCE_INDEX });
 
     // Get all proof IDs
     const proofIds = await getAllProofIds();
@@ -365,7 +371,7 @@ export async function clearAllStorage(): Promise<void> {
     }
 
     // Clear proof index
-    await AsyncStorage.removeItem(STORAGE_KEYS.PROOF_INDEX);
+    await Keychain.resetGenericPassword({ service: STORAGE_KEYS.PROOF_INDEX });
 
     console.log("[DefaultStorageAdapter] All storage cleared");
   } catch (error) {
