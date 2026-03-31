@@ -50,6 +50,8 @@ export interface FaceZkModelsConfig {
   recognition: ModelSource;
   /** Anti-spoof model – antispoof.onnx (optional; falls back to bundled) */
   antispoof?: ModelSource;
+  /** Age/Gender model – genderage.onnx (optional) */
+  ageGender?: ModelSource;
   /** ZK proof WASM binary – zk_face_wasm_bg.wasm (optional; falls back to bundled) */
   wasm?: ModelSource;
   /** ZK proof worker HTML – zk-worker.html (optional; falls back to bundled) */
@@ -133,6 +135,7 @@ export interface FaceZkSetupConfig {
       detection?: string;
       recognition?: string;
       antispoof?: string;
+      ageGender?: string;
       wasm?: string;
       zkWorkerHtml?: string;
     };

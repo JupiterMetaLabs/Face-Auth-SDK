@@ -130,6 +130,16 @@ export const ExampleVerifyScreen: React.FC<Props> = ({
                 ? `${outcome.score.toFixed(1)}%`
                 : "N/A"}
             </Text>
+            {outcome?.live?.gender && (
+              <Text style={styles.summaryText}>
+                Gender: {outcome.live.gender}
+              </Text>
+            )}
+            {outcome?.live?.age !== undefined && (
+              <Text style={styles.summaryText}>
+                Estimated Age: {outcome.live.age}
+              </Text>
+            )}
             {outcome?.zkProof && (
               <Text style={styles.summaryText}>
                 ZK hash: {outcome.zkProof.hash.substring(0, 16)}…

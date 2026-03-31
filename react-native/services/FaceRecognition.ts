@@ -40,6 +40,8 @@ export interface FaceProcessResult {
   box?: DetectionBox;
   pose?: { yaw: number; pitch: number; roll: number };
   message?: string;
+  gender?: "Male" | "Female" | "Unknown";
+  age?: number;
 }
 
 /**
@@ -81,6 +83,7 @@ export class FaceRecognitionService {
     try {
       let detUrl: string;
       let recUrl: string;
+      let ageGenderUrl: string | undefined;
 
       if (FaceZkSdk.isInitialized()) {
         // ── SDK-configured model sources ───────────────────────────────────
@@ -94,6 +97,12 @@ export class FaceRecognitionService {
         console.log("[FaceRecognition] Step 2: Resolving recognition model from SDK config");
         recUrl = await resolveModelUri(sdkConfig.models.recognition, undefined, sdkConfig.allowedDomains);
         console.log("[FaceRecognition] Recognition model URI:", recUrl);
+
+        if (sdkConfig.models.ageGender) {
+          console.log("[FaceRecognition] Step 2b: Resolving age/gender model from SDK config");
+          ageGenderUrl = await resolveModelUri(sdkConfig.models.ageGender, undefined, sdkConfig.allowedDomains);
+          console.log("[FaceRecognition] Age/Gender model URI:", ageGenderUrl);
+        }
       } else {
         // ── Bundled fallback (in-repo / monorepo usage) ────────────────────
         // Static require() calls resolved by Metro at build time.
@@ -108,6 +117,16 @@ export class FaceRecognitionService {
         await recAsset.downloadAsync();
         recUrl = recAsset.localUri || recAsset.uri;
         console.log("[FaceRecognition] Recognition model URL:", recUrl);
+
+        try {
+          console.log("[FaceRecognition] Step 2b: Attempting to load age/gender model asset (bundled fallback)");
+          const ageGenderAsset = Asset.fromModule(require("../../assets/models/genderage.onnx"));
+          await ageGenderAsset.downloadAsync();
+          ageGenderUrl = ageGenderAsset.localUri || ageGenderAsset.uri;
+          console.log("[FaceRecognition] Age/Gender model URL:", ageGenderUrl);
+        } catch (e) {
+          console.log("[FaceRecognition] Optional Age/Gender bundled asset not found. Skipping.");
+        }
       }
 
       console.log("[FaceRecognition] Step 2.5: Loading ONNX WASM asset");
@@ -145,9 +164,21 @@ export class FaceRecognitionService {
         "KB",
       );
 
+      let ageGenderBase64: string | undefined;
+      if (ageGenderUrl) {
+        ageGenderBase64 = await FileSystem.readAsStringAsync(ageGenderUrl, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        console.log(
+          "[FaceRecognition] Age/Gender model size:",
+          Math.round(ageGenderBase64.length / 1024),
+          "KB",
+        );
+      }
+
       console.log("[FaceRecognition] Step 4: Sending model data to WebView");
       // Send base64 data to WebView - it will convert to Blob URLs
-      const loadPromise = this.bridge.loadModels(detBase64, recBase64, wasmBase64);
+      const loadPromise = this.bridge.loadModels(detBase64, recBase64, wasmBase64, ageGenderBase64);
 
       console.log(
         "[FaceRecognition] Step 5: Waiting for WebView to load models...",
@@ -272,11 +303,30 @@ export class FaceRecognitionService {
       const pose = this.estimatePoseFromLandmarks(box.landmarks);
       console.log("[FaceRecognition] Estimated Pose:", pose);
 
+      // 7. Age & Gender Prediction (if model loaded)
+      let detectedGender: "Male" | "Female" | "Unknown" = "Unknown";
+      let estimatedAge: number = 0;
+      try {
+        console.log("[FaceRecognition] Step 7: Running Age/Gender inference (skip if not loaded)...");
+        // Resize 112x112 to 96x96 for standard InsightFace genderage model
+        const ageGenderTensor = this.resizeTensorCHW(faceImage, 112, 96);
+        const ageGenderRes = await this.bridge.runAgeGender(ageGenderTensor, 96, 96);
+        detectedGender = ageGenderRes.gender;
+        estimatedAge = ageGenderRes.age;
+        console.log("[FaceRecognition] Age/Gender Result:", { age: estimatedAge, gender: detectedGender });
+      } catch (agError: any) {
+        if (!agError.message?.includes("model not loaded")) {
+           console.warn("[FaceRecognition] Age/Gender warning:", agError);
+        }
+      }
+
       return {
         status: "ok",
         embedding,
         box,
         pose,
+        gender: detectedGender !== "Unknown" ? detectedGender : undefined,
+        age: estimatedAge > 0 ? estimatedAge : undefined,
       };
     } catch (error) {
       console.error("[FaceRecognition] ❌ Error:", error);
@@ -421,10 +471,28 @@ export class FaceRecognitionService {
         );
       }
 
+      // Step 6: Run Age/Gender (because data is identically prepared 112x112)
+      let detectedGender: "Male" | "Female" | "Unknown" = "Unknown";
+      let estimatedAge: number = 0;
+      try {
+        console.log("[FaceRecognition] Step 6: Running Age/Gender inference on pre-cropped face...");
+        // Resize 112x112 to 96x96 for standard InsightFace genderage model
+        const ageGenderTensor = this.resizeTensorCHW(data, 112, 96);
+        const ageGenderRes = await this.bridge.runAgeGender(ageGenderTensor, 96, 96);
+        detectedGender = ageGenderRes.gender;
+        estimatedAge = ageGenderRes.age;
+      } catch (agError: any) {
+        if (!agError.message?.includes("model not loaded")) {
+           console.warn("[FaceRecognition] Age/Gender warning:", agError);
+        }
+      }
+
       return {
         status: "ok",
         embedding,
         pose,
+        gender: detectedGender !== "Unknown" ? detectedGender : undefined,
+        age: estimatedAge > 0 ? estimatedAge : undefined,
         // No bounding box to return as main result, as this was pre-cropped flow
       };
     } catch (error) {
@@ -703,6 +771,47 @@ export class FaceRecognitionService {
     const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
     if (norm === 0) throw new Error("NO_FACE: model returned a zero-vector — face crop may be empty or invalid");
     return embedding.map((val) => val / norm);
+  }
+
+  /**
+   * Resizes a CHW normalized float32 tensor using bilinear interpolation
+   */
+  private resizeTensorCHW(src: Float32Array, srcSize: number, dstSize: number): Float32Array {
+    if (srcSize === dstSize) return src;
+    const dst = new Float32Array(3 * dstSize * dstSize);
+    const scale = srcSize / dstSize;
+    const srcChSize = srcSize * srcSize;
+    const dstChSize = dstSize * dstSize;
+
+    for (let c = 0; c < 3; c++) {
+      for (let y = 0; y < dstSize; y++) {
+        for (let x = 0; x < dstSize; x++) {
+          const srcX = x * scale;
+          const srcY = y * scale;
+
+          const x0 = Math.floor(srcX);
+          const y0 = Math.floor(srcY);
+          const x1 = Math.min(x0 + 1, srcSize - 1);
+          const y1 = Math.min(y0 + 1, srcSize - 1);
+
+          const dx = srcX - x0;
+          const dy = srcY - y0;
+
+          const w00 = (1 - dx) * (1 - dy);
+          const w10 = dx * (1 - dy);
+          const w01 = (1 - dx) * dy;
+          const w11 = dx * dy;
+
+          const v00 = src[c * srcChSize + y0 * srcSize + x0];
+          const v10 = src[c * srcChSize + y0 * srcSize + x1];
+          const v01 = src[c * srcChSize + y1 * srcSize + x0];
+          const v11 = src[c * srcChSize + y1 * srcSize + x1];
+
+          dst[c * dstChSize + y * dstSize + x] = v00 * w00 + v10 * w10 + v01 * w01 + v11 * w11;
+        }
+      }
+    }
+    return dst;
   }
 
   /**

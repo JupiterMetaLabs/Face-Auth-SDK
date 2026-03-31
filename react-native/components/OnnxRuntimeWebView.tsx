@@ -34,11 +34,12 @@ export class OnnxRuntimeBridge {
         this.webViewRef = webViewRef;
     }
 
-    async loadModels(detModelData: string, recModelData: string, wasmData?: string): Promise<void> {
+    async loadModels(detModelData: string, recModelData: string, wasmData?: string, ageGenderModelData?: string): Promise<void> {
         console.log('[OnnxRuntimeBridge] loadModels called with data lengths:', {
             detModelData: detModelData.length,
             recModelData: recModelData.length,
             wasmData: wasmData?.length ?? 0,
+            ageGenderModelData: ageGenderModelData?.length ?? 0,
         });
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
@@ -60,7 +61,7 @@ export class OnnxRuntimeBridge {
                 reject(new Error(data.error || JSON.stringify(data)));
             });
 
-            this.sendMessage('loadModels', { detModelData, recModelData, wasmData });
+            this.sendMessage('loadModels', { detModelData, recModelData, wasmData, ageGenderModelData });
         });
     }
 
@@ -115,6 +116,34 @@ export class OnnxRuntimeBridge {
             });
 
             this.sendMessage('runRecognition', {
+                imageDataB64: this.float32ToBase64(imageData),
+                width,
+                height,
+            });
+        });
+    }
+
+    async runAgeGender(imageData: Float32Array, width: number, height: number): Promise<{ age: number, gender: 'Male' | 'Female' | 'Unknown' }> {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                this.messageCallbacks.delete('ageGenderResult');
+                this.messageCallbacks.delete('error');
+                reject(new Error('runAgeGender timeout after 60s'));
+            }, 60000);
+
+            this.messageCallbacks.set('ageGenderResult', (result) => {
+                clearTimeout(timeout);
+                this.messageCallbacks.delete('ageGenderResult');
+                resolve(result);
+            });
+
+            this.messageCallbacks.set('error', (data) => {
+                clearTimeout(timeout);
+                this.messageCallbacks.delete('error');
+                reject(new Error(data.error || JSON.stringify(data)));
+            });
+
+            this.sendMessage('runAgeGender', {
                 imageDataB64: this.float32ToBase64(imageData),
                 width,
                 height,
@@ -232,6 +261,7 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
     <script>
         let detectionSession = null;
         let recognitionSession = null;
+        let ageGenderSession = null;
 
         function postToRN(message) {
             if (window.ReactNativeWebView) {
@@ -260,13 +290,16 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
                 }
                 switch (message.type) {
                     case 'loadModels':
-                        await loadModels(message.detModelData, message.recModelData, message.wasmData);
+                        await loadModels(message.detModelData, message.recModelData, message.wasmData, message.ageGenderModelData);
                         break;
                     case 'runDetection':
                         await runDetection(message.imageDataB64, message.width, message.height);
                         break;
                     case 'runRecognition':
                         await runRecognition(message.imageDataB64, message.width, message.height);
+                        break;
+                    case 'runAgeGender':
+                        await runAgeGender(message.imageDataB64, message.width, message.height);
                         break;
                 }
             } catch (error) {
@@ -306,7 +339,7 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
             }
         }
 
-        async function loadModels(detBase64, recBase64, wasmBase64) {
+        async function loadModels(detBase64, recBase64, wasmBase64, ageGenderBase64) {
             try {
                 if (wasmBase64) {
                     // ORT 1.16 always attempts WebAssembly.instantiateStreaming(fetch(path)) first.
@@ -341,6 +374,12 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
                 console.log('[ONNX Worker] Loading recognition model...');
                 recognitionSession = await ort.InferenceSession.create(b64ToArrayBuffer(recBase64));
                 console.log('[ONNX Worker] Recognition session created');
+
+                if (ageGenderBase64) {
+                    console.log('[ONNX Worker] Loading age/gender model...');
+                    ageGenderSession = await ort.InferenceSession.create(b64ToArrayBuffer(ageGenderBase64));
+                    console.log('[ONNX Worker] Age/gender session created');
+                }
 
                 document.getElementById('status').textContent = 'Models loaded';
                 postToRN({ type: 'modelsLoaded' });
@@ -393,6 +432,50 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
                 });
             } catch (error) {
                 console.error('[ONNX Worker] Recognition error:', error);
+                postToRN({ type: 'error', error: error.message });
+            }
+        }
+
+        async function runAgeGender(imageDataB64, width, height) {
+            try {
+                if (!ageGenderSession) throw new Error('Age/Gender model not loaded');
+
+                const imageData = b64ToFloat32Array(imageDataB64);
+                // genderage usually takes 96x96 input dims from insightface
+                const inputTensor = new ort.Tensor('float32', imageData, [1, 3, width, height]);
+                const inputName = ageGenderSession.inputNames[0];
+                const results = await ageGenderSession.run({ [inputName]: inputTensor });
+
+                const outputKey = Object.keys(results)[0];
+                const outputData = Array.from(results[outputKey].data);
+                
+                // Typical InsightFace genderage output format: 1x3 array
+                // [gender_male_prob, gender_female_prob, age_regression_value]
+                // Note: some variants are just [gender, age] but usually it's length 3
+                let gender = 'Unknown';
+                let age = 0;
+
+                if (outputData.length >= 3) {
+                    const maleProb = outputData[0];
+                    const femaleProb = outputData[1];
+                    gender = maleProb > femaleProb ? 'Male' : 'Female';
+                    age = Math.round(outputData[2] * 100); // Typical scaling if regression is 0-1
+                } else if (outputData.length === 2) {
+                    gender = outputData[0] > 0.5 ? 'Female' : 'Male';
+                    age = Math.round(outputData[1]);
+                } else if (outputData.length > 0) {
+                    // Fallback
+                    gender = outputData[0] > 0 ? 'Female' : 'Male';
+                    age = 0;
+                }
+
+                postToRN({
+                    type: 'ageGenderResult',
+                    age: age,
+                    gender: gender
+                });
+            } catch (error) {
+                console.error('[ONNX Worker] Age/Gender error:', error);
                 postToRN({ type: 'error', error: error.message });
             }
         }

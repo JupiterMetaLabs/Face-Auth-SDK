@@ -117,6 +117,12 @@ export interface LiveCaptureResult {
 
   /** Image metadata for the captured frame. */
   image?: LiveImageInfo;
+
+  /** Detected gender if model is configured */
+  gender?: "Male" | "Female" | "Unknown";
+
+  /** Estimated age if model is configured */
+  age?: number;
 }
 
 // ============================================================================

@@ -28,6 +28,7 @@ export const DEFAULT_MODEL_FILES = {
   detection: "det_500m.onnx",
   recognition: "w600k_mbf.onnx",
   antispoof: "antispoof.onnx",
+  ageGender: "genderage.onnx",
   wasm: "zk_face_wasm_bg.wasm",
   zkWorkerHtml: "zk-worker.html",
 } as const;
@@ -64,6 +65,7 @@ export function buildModelUrls(
     detection: `${b}/${f.detection}`,
     recognition: `${b}/${f.recognition}`,
     antispoof: `${b}/${f.antispoof}`,
+    ageGender: `${b}/${f.ageGender}`,
     wasm: `${b}/${f.wasm}`,
     zkWorkerHtml: `${b}/${f.zkWorkerHtml}`,
   };
