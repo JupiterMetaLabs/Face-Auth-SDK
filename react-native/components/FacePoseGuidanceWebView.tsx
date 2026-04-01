@@ -421,7 +421,7 @@ export const FacePoseGuidanceWebView: React.FC<
               ) : null}
               <Text style={styles.poseText}>
                 {targetPose?.yaw && Math.abs(targetPose.yaw) > 10
-                  ? `Look slightly ${targetPose.yaw > 0 ? "Right" : "Left"}`
+                  ? `Look slightly ${targetPose.yaw > 0 ? "Left" : "Right"}`
                   : "Look Straight"}
               </Text>
             </View>

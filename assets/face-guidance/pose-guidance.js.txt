@@ -262,14 +262,15 @@ function checkGuidance(currentPose, currentGaze, faceWidth) {
         newStatus.arrowRight = false;
         isMatch = false;
     } else if (yawDiff > YAW_THRESHOLD) {
-        statusText.innerText = "Turn Face Left";
-        newStatus.arrowLeft = true;
-        newStatus.arrowRight = false;
-        isMatch = false;
-    } else if (yawDiff < -YAW_THRESHOLD) {
+        // Front camera preview is mirrored; invert directional prompts to match user perception.
         statusText.innerText = "Turn Face Right";
         newStatus.arrowLeft = false;
         newStatus.arrowRight = true;
+        isMatch = false;
+    } else if (yawDiff < -YAW_THRESHOLD) {
+        statusText.innerText = "Turn Face Left";
+        newStatus.arrowLeft = true;
+        newStatus.arrowRight = false;
         isMatch = false;
     } else {
         // Yaw is correct. Check Gaze.
