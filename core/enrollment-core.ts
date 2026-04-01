@@ -29,7 +29,7 @@ import type {
   SdkError,
 } from "./types";
 import { isSdkError } from "./types";
-import { v7 as uuidv7 } from "uuid";
+import { generateReferenceId } from "./idGenerator";
 
 /**
  * Interface for face embedding provider.
@@ -52,13 +52,6 @@ export interface FaceEmbeddingProvider {
   }>;
 }
 
-/**
- * Generate a unique reference ID.
- * Uses timestamp + random string for uniqueness.
- */
-function generateReferenceId(): ReferenceId {
-  return `ref_${uuidv7()}`;
-}
 
 /**
  * Creates a reference template from an image URI to be used in future verification attempts.
