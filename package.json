@@ -1,6 +1,6 @@
 {
   "name": "@jupitermetalabs/face-zk-sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Face Verification and ZK Proof SDK for React Native and Web",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -35,7 +35,7 @@
     "assets/README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node ./cli/copy-dist-assets.js",
     "prepare": "npm run build",
     "postinstall": "node ./cli/copy-ort-assets.js",
     "setup": "node ./cli/setup.js",
@@ -52,13 +52,11 @@
   "license": "Apache-2.0",
   "dependencies": {
     "buffer": "^6.0.3",
-    "jpeg-js": "^0.4.4",
-    "uuid": "^11.0.0"
+    "jpeg-js": "^0.4.4"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
     "@types/react": "^19.2.14",
-    "@types/uuid": "^10.0.0",
     "jest": "^29.7.0",
     "onnxruntime-web": "^1.16.3",
     "react-native-keychain": "^8.2.0",
