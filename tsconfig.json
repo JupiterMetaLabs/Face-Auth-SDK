@@ -12,7 +12,7 @@
     "outDir": "./dist",
     "rootDir": "./",
     "strict": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -32,5 +32,6 @@
   "exclude": [
     "node_modules",
     "example"
-  ]
+  ],
+  "extends": "expo/tsconfig.base"
 }

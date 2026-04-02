@@ -9,7 +9,7 @@ const arrowRight = document.getElementById('arrow_right');
 
 // Configuration
 let TARGET_POSE = { yaw: 0, pitch: 0, roll: 0 };
-let REQUIRED_STABLE_DURATION = 2000; // 2 seconds
+let REQUIRED_STABLE_DURATION = 1000; // 1 second
 let YAW_THRESHOLD = 6; // degrees
 let PITCH_THRESHOLD = 10; // degrees
 let GAZE_THRESHOLD = 0.3; // Deviation from center (0.5)

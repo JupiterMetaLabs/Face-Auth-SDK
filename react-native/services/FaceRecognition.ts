@@ -308,8 +308,8 @@ export class FaceRecognitionService {
       let estimatedAge: number = 0;
       try {
         console.log("[FaceRecognition] Step 7: Running Age/Gender inference (skip if not loaded)...");
-        // Resize 112x112 to 96x96 for standard InsightFace genderage model
-        const ageGenderTensor = this.resizeTensorCHW(faceImage, 112, 96);
+        // Python-equivalent center-crop from full 640×640 image (1.5× bbox padding, [0,255])
+        const ageGenderTensor = this.cropFaceForGenderAge(processedData, box);
         const ageGenderRes = await this.bridge.runAgeGender(ageGenderTensor, 96, 96);
         detectedGender = ageGenderRes.gender;
         estimatedAge = ageGenderRes.age;
@@ -476,8 +476,11 @@ export class FaceRecognitionService {
       let estimatedAge: number = 0;
       try {
         console.log("[FaceRecognition] Step 6: Running Age/Gender inference on pre-cropped face...");
-        // Resize 112x112 to 96x96 for standard InsightFace genderage model
-        const ageGenderTensor = this.resizeTensorCHW(data, 112, 96);
+        // Python-equivalent center-crop from full 640×640 image (1.5× bbox padding, [0,255])
+        const agBox = boxes.length > 0 ? boxes[0] : null;
+        const ageGenderTensor = agBox
+          ? this.cropFaceForGenderAge(detectionInput.data, agBox)
+          : this.renormalizeForGenderAge(this.resizeTensorCHW(data, 112, 96));
         const ageGenderRes = await this.bridge.runAgeGender(ageGenderTensor, 96, 96);
         detectedGender = ageGenderRes.gender;
         estimatedAge = ageGenderRes.age;
@@ -771,6 +774,48 @@ export class FaceRecognitionService {
     const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
     if (norm === 0) throw new Error("NO_FACE: model returned a zero-vector — face crop may be empty or invalid");
     return embedding.map((val) => val / norm);
+  }
+
+  /**
+   * Converts a CHW tensor from ArcFace normalization [-1, 1] back to raw pixel
+   * values [0, 255] as expected by the genderage model (scalefactor=1, mean=0).
+   * ArcFace: v = (pixel - 127.5) / 128.0  →  pixel = v * 128.0 + 127.5
+   */
+  private renormalizeForGenderAge(src: Float32Array): Float32Array {
+    const dst = new Float32Array(src.length);
+    for (let i = 0; i < src.length; i++) {
+      dst[i] = src[i] * 128.0 + 127.5;
+    }
+    return dst;
+  }
+
+  /**
+   * Replicates the Python yakhyo/facial-analysis center-crop for genderage:
+   *   scale = 96 / (max(w, h) * 1.5)   ← 1.5× padding around the face
+   *   SimilarityTransform(scale, translate_to_center)
+   *   cv2.warpAffine → 96×96, borderValue=0
+   *   blobFromImage scalefactor=1, mean=0, swapRB=True → [0, 255] RGB
+   *
+   * Crops directly from the normalized 640×640 tensor and denormalizes.
+   */
+  private cropFaceForGenderAge(
+    processedData: Float32Array,
+    box: DetectionBox,
+  ): Float32Array {
+    const bboxW = box.x2 - box.x1;
+    const bboxH = box.y2 - box.y1;
+    const centerX = (box.x1 + box.x2) / 2;
+    const centerY = (box.y1 + box.y2) / 2;
+
+    const targetSize = 96;
+    const scale = targetSize / (Math.max(bboxW, bboxH) * 1.5);
+    const tx = targetSize / 2 - centerX * scale;
+    const ty = targetSize / 2 - centerY * scale;
+
+    // Simple scale + translate (no rotation) — matrix format [a, b, tx, c, d, ty]
+    const matrix = [scale, 0, tx, 0, scale, ty];
+    const crop = warpAffine(processedData, 640, 640, matrix, targetSize);
+    return this.renormalizeForGenderAge(crop);
   }
 
   /**

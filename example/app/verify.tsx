@@ -14,17 +14,14 @@
  * limitations under the License.
  */
 
-import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import React from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type {
   ReferenceTemplate,
   FaceZkRuntimeConfig,
-  VerificationOutcome,
   FaceEmbeddingProvider,
 } from "@jupitermetalabs/face-zk-sdk/react-native";
-import { FaceZkVerificationFlow } from "@jupitermetalabs/face-zk-sdk/react-native";
-import { getExampleVerificationOptions } from "../src/sdkRuntime/faceZkSdkExample";
 
 interface ExampleRuntime {
   sdkConfig: FaceZkRuntimeConfig;
@@ -45,37 +42,31 @@ export const ExampleVerifyScreen: React.FC<Props> = ({
   onDone,
   onCancel,
 }) => {
-  const { sdkConfig, embeddingProvider, isTestMode } = runtime;
-  const [outcome, setOutcome] = useState<VerificationOutcome | null>(null);
-
-  const verificationOptions = getExampleVerificationOptions(isTestMode);
-
-  const handleComplete = (result: VerificationOutcome) => {
-    // In test mode we bias towards success: if the SDK reports a failure we still
-    // surface the outcome but allow the user to continue. This mirrors the legacy
-    // EXPO_PUBLIC_ENABLE_TEST_MODE semantics in the app.
-    if (isTestMode && !result.success) {
-      console.warn(
-        "[FaceZkSdkExample] Verification failed but TEST MODE is enabled, treating as success for demo purposes.",
-      );
-      setOutcome({
-        ...result,
-        success: true,
-      });
-    } else {
-      setOutcome(result);
-    }
-  };
-
-  const hasFinished = !!outcome;
+  const { isTestMode } = runtime;
+  const metadataRecord =
+    reference.metadata && typeof reference.metadata === "object"
+      ? (reference.metadata as Record<string, unknown>)
+      : {};
+  const sdkResponse =
+    (metadataRecord.sdkResponse as
+      | { gender?: string; age?: number | null }
+      | undefined) ?? {};
+  const captureResponse =
+    (metadataRecord.captureResponse as
+      | {
+          antiSpoofCheckPassed?: boolean;
+          targetPose?: { yaw?: number; pitch?: number; roll?: number } | null;
+          capturedPose?: { yaw?: number; pitch?: number; roll?: number } | null;
+        }
+      | undefined) ?? {};
 
   return (
     <View style={styles.container}>
       <View style={styles.banner}>
-        <Text style={styles.bannerTitle}>Step 3 · Liveness & Verification</Text>
+        <Text style={styles.bannerTitle}>Step 3 · Step 2 Response</Text>
         <Text style={styles.bannerText}>
-          The SDK will run liveness checks, extract embeddings, compare against
-          the enrolled reference, and optionally generate a ZK proof.
+          Verification is skipped. This screen only shows response data captured
+          during Step 2 enrollment, including anti-spoof pass state.
         </Text>
         {isTestMode && (
           <Text style={styles.bannerHint}>
@@ -85,81 +76,46 @@ export const ExampleVerifyScreen: React.FC<Props> = ({
         )}
       </View>
 
-      <View style={styles.flowContainer}>
-        {!hasFinished ? (
-          <FaceZkVerificationFlow
-            sdkConfig={sdkConfig}
-            reference={reference}
-            mode="verify-with-proof"
-            embeddingProvider={embeddingProvider}
-            livenessProvider={undefined}
-            verificationOptions={verificationOptions}
-            referencePose={reference.pose}
-            onComplete={handleComplete}
-            onCancel={onCancel}
-            uiConfig={{
-              theme: {
-                colors: {
-                  primary: "#22c55e",
-                  background: "#020617",
-                  surface: "rgba(255,255,255,0.08)",
-                  text: "#e5e7eb",
-                  textMuted: "#9ca3af",
-                  error: "#f97316",
-                },
-                borderRadius: 999,
-              },
-              strings: {
-                verificationSuccessTitle: "Identity Verified",
-                verificationSuccessSubtitle: "Match score: {score}%",
-                cancelButton: "Back",
-                retryButton: "Try Again",
-              },
-            }}
-          />
-        ) : (
-          <View style={styles.summaryContainer}>
-            <Text style={styles.summaryTitle}>
-              {outcome?.success
-                ? "Verification Successful"
-                : "Verification Failed"}
-            </Text>
-            <Text style={styles.summaryText}>
-              Match score:{" "}
-              {typeof outcome?.score === "number"
-                ? `${outcome.score.toFixed(1)}%`
-                : "N/A"}
-            </Text>
-            {outcome?.live?.gender && (
-              <Text style={styles.summaryText}>
-                Gender: {outcome.live.gender}
-              </Text>
-            )}
-            {outcome?.live?.age !== undefined && (
-              <Text style={styles.summaryText}>
-                Estimated Age: {outcome.live.age}
-              </Text>
-            )}
-            {outcome?.zkProof && (
-              <Text style={styles.summaryText}>
-                ZK hash: {outcome.zkProof.hash.substring(0, 16)}…
-              </Text>
-            )}
-            {outcome?.error && (
-              <Text style={styles.summaryError}>
-                Error: {outcome.error.message}
-              </Text>
-            )}
+      <ScrollView style={styles.flowContainer} contentContainerStyle={styles.summaryContainer}>
+        <Text style={styles.summaryTitle}>Enrollment Response</Text>
+        <Text style={styles.summaryText}>Reference ID: {reference.referenceId}</Text>
+        <Text style={styles.summaryText}>
+          Embedding: {reference.embedding.length} values generated
+        </Text>
+        <Text style={styles.summaryText}>
+          Anti-spoof:{" "}
+          {captureResponse.antiSpoofCheckPassed ? "Passed" : "Not available"}
+        </Text>
+        <Text style={styles.summaryText}>
+          Gender: {sdkResponse.gender ?? "Unknown"}
+        </Text>
+        <Text style={styles.summaryText}>
+          Estimated Age:{" "}
+          {sdkResponse.age !== null && sdkResponse.age !== undefined
+            ? String(sdkResponse.age)
+            : "N/A"}
+        </Text>
+        <Text style={styles.summaryText}>
+          Captured Pose: yaw {reference.pose.yaw.toFixed(1)}, pitch{" "}
+          {reference.pose.pitch.toFixed(1)}, roll {reference.pose.roll.toFixed(1)}
+        </Text>
 
-            <Pressable style={styles.primaryButton} onPress={onDone}>
-              <Text style={styles.primaryButtonText}>Finish Example</Text>
-            </Pressable>
-            <Pressable style={styles.secondaryButton} onPress={onCancel}>
-              <Text style={styles.secondaryButtonText}>Start Over</Text>
-            </Pressable>
-          </View>
-        )}
-      </View>
+        <Text style={styles.rawTitle}>Full Response (raw)</Text>
+        <Text style={styles.rawJson}>
+          {JSON.stringify(
+            { ...reference, embedding: `[${reference.embedding.length} values]` },
+            null,
+            2,
+          )}
+        </Text>
+
+        <Pressable style={styles.primaryButton} onPress={onDone}>
+          <Text style={styles.primaryButtonText}>Finish Example</Text>
+        </Pressable>
+        <Pressable style={styles.secondaryButton} onPress={onCancel}>
+          <Text style={styles.secondaryButtonText}>Start Over</Text>
+        </Pressable>
+      </ScrollView>
     </View>
   );
 };
@@ -211,11 +167,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#9ca3af",
   },
-  summaryError: {
-    marginTop: 4,
-    fontSize: 13,
-    color: "#f97316",
-  },
   primaryButton: {
     marginTop: 24,
     borderRadius: 999,
@@ -240,6 +191,23 @@ const styles = StyleSheet.create({
     color: "#e5e7eb",
     fontSize: 14,
     fontWeight: "500",
+  },
+  rawTitle: {
+    marginTop: 24,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6b7280",
+    alignSelf: "flex-start",
+  },
+  rawJson: {
+    marginTop: 8,
+    fontFamily: "monospace",
+    fontSize: 11,
+    color: "#a3e635",
+    backgroundColor: "#0a0a0a",
+    padding: 12,
+    borderRadius: 8,
+    alignSelf: "stretch",
   },
 });
 

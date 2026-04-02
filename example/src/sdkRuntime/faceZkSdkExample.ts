@@ -60,9 +60,10 @@ export const exampleFaceZkRuntimeConfig: FaceZkRuntimeConfig = {
 export function getExampleVerificationOptions(isTestMode: boolean): VerificationOptions {
   const base: VerificationOptions = {
     liveness: {},
-    zk: {
-      requiredForSuccess: false,
-    },
+    // ZK options are intentionally disabled for the simplified demo flow.
+    // zk: {
+    //   requiredForSuccess: false,
+    // },
     includeImageData: {
       base64: false,
       sizeKb: false,
