@@ -169,6 +169,17 @@ export {
 } from "./ui/FaceZkVerificationFlow";
 
 // ============================================================================
+// React Native Components (default implementations)
+// ============================================================================
+
+export {
+  OnnxRuntimeWebView,
+  OnnxRuntimeBridge,
+} from "./components/OnnxRuntimeWebView";
+
+export { faceRecognitionService } from "./services/FaceRecognition";
+
+// ============================================================================
 // React Native Adapters
 // ============================================================================
 

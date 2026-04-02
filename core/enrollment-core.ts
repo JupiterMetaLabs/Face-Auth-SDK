@@ -191,11 +191,21 @@ export async function createReferenceFromImage(
     // Step 2: Build reference template
     const referenceId = generateReferenceId();
 
+    const templateMetadata: Record<string, unknown> = {
+      ...(metadata ?? {}),
+      sdkResponse: {
+        gender: result.gender ?? "Unknown",
+        age: result.age ?? null,
+        embeddingGenerated: true,
+        pose: result.pose,
+      },
+    };
+
     const template: ReferenceTemplate = {
       referenceId,
       embedding: result.embedding,
       pose: result.pose,
-      metadata,
+      metadata: templateMetadata,
     };
 
     sdkConfig.onLog?.({

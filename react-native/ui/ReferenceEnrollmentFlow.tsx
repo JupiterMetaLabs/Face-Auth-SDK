@@ -180,7 +180,10 @@ export const ReferenceEnrollmentFlow: React.FC<
   };
 
   // Handle image capture from pose guidance
-  const handleCaptureSuccess = async (imageUri: string) => {
+  const handleCaptureSuccess = async (
+    imageUri: string,
+    captureMetadata?: { targetPose?: unknown; capturedPose?: unknown },
+  ) => {
     console.log("[ReferenceEnrollmentFlow] Image captured:", imageUri);
     setStage("PROCESSING");
 
@@ -190,7 +193,17 @@ export const ReferenceEnrollmentFlow: React.FC<
         imageUri,
         sdkConfig,
         embeddingProvider,
-        enrollmentOptions,
+        {
+          ...enrollmentOptions,
+          metadata: {
+            ...(enrollmentOptions.metadata ?? {}),
+            captureResponse: {
+              antiSpoofCheckPassed: true,
+              targetPose: captureMetadata?.targetPose ?? null,
+              capturedPose: captureMetadata?.capturedPose ?? null,
+            },
+          },
+        },
       );
 
       console.log(

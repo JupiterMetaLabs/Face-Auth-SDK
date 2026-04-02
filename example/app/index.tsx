@@ -24,6 +24,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { router } from "expo-router";
 
 
 import { ExampleReferenceScreen } from "./reference";
@@ -108,10 +109,7 @@ export default function ExampleKycFlowScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.title}>SDK Example Complete</Text>
-        <Text style={styles.subtitle}>
-          The example flow has finished. You can now adapt this pattern into your
-          own routes and screens.
-        </Text>
+        <Text style={styles.subtitle}>Step 2 response was shown on Step 3 screen.</Text>
         <Pressable style={styles.primaryButton} onPress={resetFlow}>
           <Text style={styles.primaryButtonText}>Run Again</Text>
         </Pressable>
@@ -127,7 +125,7 @@ export default function ExampleKycFlowScreen() {
       <Text style={styles.title}>Face+ZK SDK Example</Text>
       <Text style={styles.subtitle}>
         This screen mimics a basic KYC input form. In test mode, you can skip filling
-        the fields and still run the full SDK flow.
+        the fields and run Step 2 capture only, then view the response.
       </Text>
 
       <Text style={styles.label}>Full Name</Text>
@@ -175,6 +173,10 @@ export default function ExampleKycFlowScreen() {
 
       <Pressable style={styles.primaryButton} onPress={handleStart}>
         <Text style={styles.primaryButtonText}>Start Face+ZK Flow</Text>
+      </Pressable>
+
+      <Pressable style={styles.debugButton} onPress={() => router.push("/debug-gender")}>
+        <Text style={styles.debugButtonText}>Debug: Gender/Age Live</Text>
       </Pressable>
     </ScrollView>
   );
@@ -239,6 +241,18 @@ const styles = StyleSheet.create({
     color: "#022c22",
     fontSize: 15,
     fontWeight: "600",
+  },
+  debugButton: {
+    marginTop: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#4b5563",
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  debugButtonText: {
+    color: "#9ca3af",
+    fontSize: 13,
   },
 });
 

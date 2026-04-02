@@ -448,18 +448,25 @@ export const OnnxRuntimeWebView: React.FC<OnnxRuntimeBridgeProps> = ({ onReady, 
 
                 const outputKey = Object.keys(results)[0];
                 const outputData = Array.from(results[outputKey].data);
-                
-                // Typical InsightFace genderage output format: 1x3 array
-                // [gender_male_prob, gender_female_prob, age_regression_value]
-                // Note: some variants are just [gender, age] but usually it's length 3
+
+                // Compute input range using a loop (spread operator overflows stack on large arrays)
+                let minVal = Infinity, maxVal = -Infinity;
+                for (let i = 0; i < imageData.length; i++) {
+                    if (imageData[i] < minVal) minVal = imageData[i];
+                    if (imageData[i] > maxVal) maxVal = imageData[i];
+                }
+                postToRN({ type: '_debug', message: '[AgeGender] input range min=' + minVal.toFixed(2) + ' max=' + maxVal.toFixed(2) + ' | raw output: ' + JSON.stringify(outputData) });
+
                 let gender = 'Unknown';
                 let age = 0;
 
                 if (outputData.length >= 3) {
-                    const maleProb = outputData[0];
-                    const femaleProb = outputData[1];
+                    // Model output: [female_prob, male_prob, age/100]
+                    // gender = np.argmax(predictions[:2]) → 0=Female, 1=Male
+                    const femaleProb = outputData[0];
+                    const maleProb = outputData[1];
                     gender = maleProb > femaleProb ? 'Male' : 'Female';
-                    age = Math.round(outputData[2] * 100); // Typical scaling if regression is 0-1
+                    age = Math.round(outputData[2] * 100);
                 } else if (outputData.length === 2) {
                     gender = outputData[0] > 0.5 ? 'Female' : 'Male';
                     age = Math.round(outputData[1]);
