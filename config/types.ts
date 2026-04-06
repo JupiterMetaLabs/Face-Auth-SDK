@@ -66,6 +66,52 @@ export interface FaceZkFeaturesConfig {
 }
 
 /**
+ * Optional overrides for runtime WebView assets (HTML, JS bundles, WASM binaries).
+ * Every field defaults to the SDK's bundled copy when omitted.
+ *
+ * Use this to supply CDN-hosted or pre-downloaded versions of any asset so that
+ * the SDK ships without forcing Metro to bundle large files into the consumer app.
+ *
+ * Each field accepts the same `ModelSource` union as the model fields:
+ *   - `{ module: require('./myAsset.html') }` – Metro-bundled asset
+ *   - `{ url: 'https://cdn.example.com/v1/liveness.html' }` – downloaded & cached
+ *   - `{ localUri: 'file:///...' }` – pre-resolved on-device URI
+ */
+export interface FaceZkRuntimeAssetsConfig {
+  // ORT Runtime
+  /** ort.min.js text content — inlined into the ONNX Runtime WebView */
+  ortJs?: ModelSource;
+  /** ort-wasm-simd.wasm binary — sent to the ONNX Runtime WebView as base64 */
+  ortWasm?: ModelSource;
+
+  // Liveness WebView
+  /** liveness/index.html — the liveness WebView page */
+  livenessHtml?: ModelSource;
+  /** liveness/antispoof.js — anti-spoof inference script */
+  antispoofJs?: ModelSource;
+  /** liveness/liveness.js — liveness challenge script */
+  livenessJs?: ModelSource;
+
+  // MediaPipe
+  /** mediapipe/face_mesh.js — MediaPipe Face Mesh JS bundle */
+  mediapipeFaceMeshJs?: ModelSource;
+  /** mediapipe/face_mesh_solution_simd_wasm_bin.wasm — SIMD WASM binary */
+  mediapipeSimdWasm?: ModelSource;
+  /** mediapipe/face_mesh_solution_wasm_bin.wasm — non-SIMD WASM binary */
+  mediapipeWasm?: ModelSource;
+  /** mediapipe/face_mesh_solution_packed_assets.data — packed assets blob */
+  mediapipeData?: ModelSource;
+
+  // Face Guidance WebView
+  /** face-guidance/index.html — the face pose guidance WebView page */
+  faceGuidanceHtml?: ModelSource;
+  /** face-guidance/pose-guidance.js — pose guidance script */
+  faceGuidancePoseJs?: ModelSource;
+  /** face-guidance/face-logic.js — face detection logic script */
+  faceGuidanceLogicJs?: ModelSource;
+}
+
+/**
  * Config passed to `FaceZkSdk.init()` at app startup.
  *
  * @example – bundled assets (user copies models into their app)
@@ -90,6 +136,11 @@ export interface FaceZkFeaturesConfig {
  */
 export interface FaceZkConfig {
   models: FaceZkModelsConfig;
+  /**
+   * Optional overrides for runtime WebView assets. Every field falls back to the
+   * SDK's bundled copy when omitted. See `FaceZkRuntimeAssetsConfig` for details.
+   */
+  runtimeAssets?: FaceZkRuntimeAssetsConfig;
   features?: FaceZkFeaturesConfig;
   /**
    * Allowlist of hostnames that the SDK is permitted to download models from.

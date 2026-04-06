@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system/legacy';
 import { useEffect, useState } from 'react';
+import { FaceZkSdk } from '../../FaceZkSdk';
+import { resolveRuntimeAsset } from '../utils/resolveRuntimeAsset';
 
 /**
  * Data returned by useOnnxLoader, ready to pass to OnnxRuntimeWebView.
@@ -29,12 +29,11 @@ export interface OnnxLoaderData {
 }
 
 /**
- * Hook for loading bundled ONNX Runtime assets.
+ * Hook for loading ONNX Runtime assets.
  *
- * Loads ort.min.js and ort-wasm-simd.wasm from the SDK's assets/onnx/ directory
- * so the ONNX Runtime WebView can run fully offline without any CDN dependency.
- *
- * Mirrors the useWasmLoader pattern used for the ZK WASM.
+ * Loads ort.min.js and ort-wasm-simd.wasm so the ONNX Runtime WebView can run
+ * fully offline. Sources are resolved from `FaceZkConfig.runtimeAssets` when
+ * the SDK is initialised; otherwise the SDK's bundled copies are used.
  */
 export function useOnnxLoader() {
     const [isLoading, setIsLoading] = useState(false);
@@ -51,22 +50,16 @@ export function useOnnxLoader() {
                 setError(null);
                 console.log('[useOnnxLoader] Loading ONNX Runtime assets...');
 
-                // Load ort.min.js as text (.txt extension so Metro treats it as a static asset)
-                const jsAsset = Asset.fromModule(require('../../assets/onnx/ort.min.js.txt'));
-                await jsAsset.downloadAsync();
-                if (!jsAsset.localUri) throw new Error('Failed to download ort.min.js asset');
-                const ortJsContent = await FileSystem.readAsStringAsync(jsAsset.localUri, {
-                    encoding: 'utf8'
-                });
+                const allowedDomains = FaceZkSdk.isInitialized()
+                    ? FaceZkSdk.getConfig().allowedDomains
+                    : undefined;
+
+                // Load ort.min.js as text
+                const ortJsContent = await resolveRuntimeAsset('ortJs', 'utf8', allowedDomains);
                 console.log('[useOnnxLoader] ORT JS loaded, size:', ortJsContent.length);
 
                 // Load ort-wasm-simd.wasm as base64
-                const wasmAsset = Asset.fromModule(require('../../assets/onnx/ort-wasm-simd.wasm'));
-                await wasmAsset.downloadAsync();
-                if (!wasmAsset.localUri) throw new Error('Failed to download ort-wasm-simd.wasm asset');
-                let wasmBase64 = await FileSystem.readAsStringAsync(wasmAsset.localUri, {
-                    encoding: 'base64'
-                });
+                let wasmBase64 = await resolveRuntimeAsset('ortWasm', 'base64', allowedDomains);
                 // Strip any whitespace/newlines that may cause atob failure in the WebView
                 wasmBase64 = wasmBase64.replace(/\s/g, '');
                 console.log('[useOnnxLoader] ORT WASM base64 size:', wasmBase64.length);

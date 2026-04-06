@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-import { Asset } from "expo-asset";
 import { useCameraPermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
-
-// ... (imports remain)
+import { FaceZkSdk } from "../../FaceZkSdk";
+import { resolveModelUri } from "../utils/resolveModelUri";
+import { resolveRuntimeAsset } from "../utils/resolveRuntimeAsset";
 
 export type LivenessPhase =
   | "init"
@@ -91,43 +91,20 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
       console.log("[ZkFaceAuth] Loading resources...");
       setLoadError(null);
 
-      // 1. Load HTML and JS files
+      const allowedDomains = FaceZkSdk.isInitialized()
+        ? FaceZkSdk.getConfig().allowedDomains
+        : undefined;
+
+      // 1. Load HTML and JS files via config-or-bundled resolution
       console.log("[ZkFaceAuth] Resolving assets...");
-      const htmlAsset = Asset.fromModule(
-        require("../../assets/liveness/index.html"),
-      );
-      const antispoofJsAsset = Asset.fromModule(
-        require("../../assets/liveness/antispoof.js.txt"),
-      );
-      const livenessJsAsset = Asset.fromModule(
-        require("../../assets/liveness/liveness.js.txt"),
-      );
-      // Load MediaPipe Local Assets
-      const mpFaceMeshJsAsset = Asset.fromModule(
-        require("../../assets/mediapipe/face_mesh.js.txt"),
-      );
-
       console.log("[ZkFaceAuth] Assets resolved, beginning download...");
-      await Promise.all([
-        htmlAsset.downloadAsync(),
-        antispoofJsAsset.downloadAsync(),
-        livenessJsAsset.downloadAsync(),
-        mpFaceMeshJsAsset.downloadAsync(),
+      const [html, antispoofJs, livenessJs, mpFaceMeshJs] = await Promise.all([
+        resolveRuntimeAsset('livenessHtml', 'utf8', allowedDomains),
+        resolveRuntimeAsset('antispoofJs', 'utf8', allowedDomains),
+        resolveRuntimeAsset('livenessJs', 'utf8', allowedDomains),
+        resolveRuntimeAsset('mediapipeFaceMeshJs', 'utf8', allowedDomains),
       ]);
-
       console.log("[ZkFaceAuth] Initial assets downloaded. Reading strings...");
-      const html = await FileSystem.readAsStringAsync(
-        htmlAsset.localUri || htmlAsset.uri,
-      );
-      const antispoofJs = await FileSystem.readAsStringAsync(
-        antispoofJsAsset.localUri || antispoofJsAsset.uri,
-      );
-      const livenessJs = await FileSystem.readAsStringAsync(
-        livenessJsAsset.localUri || livenessJsAsset.uri,
-      );
-      const mpFaceMeshJs = await FileSystem.readAsStringAsync(
-        mpFaceMeshJsAsset.localUri || mpFaceMeshJsAsset.uri,
-      );
 
       console.log("[ZkFaceAuth] JS read successfully. Injecting...");
       // 2. Inject JS into HTML
@@ -178,17 +155,29 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
   const injectModel = async () => {
     try {
       console.log("[ZkFaceAuth] Injecting model...");
-      // ... (model injection logic remains same)
-      const modelAsset = Asset.fromModule(
-        require("../../assets/models/antispoof.onnx"),
-      );
-      await modelAsset.downloadAsync();
-      const modelBase64 = await FileSystem.readAsStringAsync(
-        modelAsset.localUri || modelAsset.uri,
-        {
-          encoding: FileSystem.EncodingType.Base64,
-        },
-      );
+
+      const allowedDomains = FaceZkSdk.isInitialized()
+        ? FaceZkSdk.getConfig().allowedDomains
+        : undefined;
+
+      // antispoof model must be provided via initializeSdk({ models: { antispoof } })
+      if (!FaceZkSdk.isInitialized()) {
+        throw new Error(
+          "[FaceZkSdk] SDK not initialized. Call initializeSdk() before using liveness components.\n" +
+          "Required: initializeSdk({ models: { detection, recognition, antispoof: { url: '...' } } })"
+        );
+      }
+      const sdkConfig = FaceZkSdk.getConfig();
+      if (!sdkConfig.models.antispoof) {
+        throw new Error(
+          "[FaceZkSdk] models.antispoof is required for liveness but was not provided.\n" +
+          "Add it to initializeSdk(): { models: { ..., antispoof: { url: 'https://...' } } }"
+        );
+      }
+      const antispoofUri = await resolveModelUri(sdkConfig.models.antispoof, undefined, allowedDomains);
+      const modelBase64 = await FileSystem.readAsStringAsync(antispoofUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
 
       // Read reference image if available (Base64 on Native)
       let referenceBase64 = "";
@@ -204,36 +193,13 @@ export const ZkFaceAuth: React.FC<ZkFaceAuthProps> = ({
         }
       }
 
-      // Read MediaPipe WASM bindings (Base64)
+      // Read MediaPipe WASM bindings (Base64) via config-or-bundled resolution
       console.log("[ZkFaceAuth] Reading MediaPipe binaries...");
-      const mpWasmSimdAsset = Asset.fromModule(
-        require("../../assets/mediapipe/face_mesh_solution_simd_wasm_bin.wasm"),
-      );
-      const mpWasmAsset = Asset.fromModule(
-        require("../../assets/mediapipe/face_mesh_solution_wasm_bin.wasm"),
-      );
-      const mpDataAsset = Asset.fromModule(
-        require("../../assets/mediapipe/face_mesh_solution_packed_assets.data"),
-      );
-
-      await Promise.all([
-        mpWasmSimdAsset.downloadAsync(),
-        mpWasmAsset.downloadAsync(),
-        mpDataAsset.downloadAsync(),
+      const [mpWasmSimdBase64, mpWasmBase64, mpDataBase64] = await Promise.all([
+        resolveRuntimeAsset('mediapipeSimdWasm', 'base64', allowedDomains),
+        resolveRuntimeAsset('mediapipeWasm', 'base64', allowedDomains),
+        resolveRuntimeAsset('mediapipeData', 'base64', allowedDomains),
       ]);
-
-      const mpWasmSimdBase64 = await FileSystem.readAsStringAsync(
-        mpWasmSimdAsset.localUri || mpWasmSimdAsset.uri,
-        { encoding: FileSystem.EncodingType.Base64 },
-      );
-      const mpWasmBase64 = await FileSystem.readAsStringAsync(
-        mpWasmAsset.localUri || mpWasmAsset.uri,
-        { encoding: FileSystem.EncodingType.Base64 },
-      );
-      const mpDataBase64 = await FileSystem.readAsStringAsync(
-        mpDataAsset.localUri || mpDataAsset.uri,
-        { encoding: FileSystem.EncodingType.Base64 },
-      );
 
       const injectScript = `
                 // Inject MediaPipe Files globally to intercept locateFile
