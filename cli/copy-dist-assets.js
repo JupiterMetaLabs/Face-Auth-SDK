@@ -55,6 +55,7 @@ const FILE_COPIES = [
 const DIR_COPIES = [
   { src: "assets/mediapipe",    dst: "mediapipe" },
   { src: "assets/face-guidance", dst: "face-guidance" },
+  { src: "assets/models",       dst: "models" },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
