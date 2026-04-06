@@ -12,12 +12,14 @@
     "outDir": "./dist",
     "rootDir": "./",
     "strict": true,
-    "moduleResolution": "bundler",
+    "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "jsx": "react-native",
-    "composite": true
+    "composite": true,
+    "noEmit": false,
+    "module": "CommonJS"
   },
   "include": [
     "index.ts",
@@ -32,6 +34,5 @@
   "exclude": [
     "node_modules",
     "example"
-  ],
-  "extends": "expo/tsconfig.base"
+  ]
 }
