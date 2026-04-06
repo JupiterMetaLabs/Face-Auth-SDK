@@ -1,6 +1,6 @@
 {
   "name": "@jupitermetalabs/face-zk-sdk",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Face Verification and ZK Proof SDK for React Native and Web",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
