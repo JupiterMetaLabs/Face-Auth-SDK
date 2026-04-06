@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import { Asset } from "expo-asset";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as jpeg from "jpeg-js";
@@ -23,6 +22,7 @@ import { OnnxRuntimeBridge } from "../components/OnnxRuntimeWebView";
 import { estimateUmeyama, Point, warpAffine } from "../utils/faceAlignment";
 import { FaceZkSdk } from "../../FaceZkSdk";
 import { resolveModelUri } from "../utils/resolveModelUri";
+import { resolveRuntimeAsset } from "../utils/resolveRuntimeAsset";
 
 type DetectionBox = {
   x1: number;
@@ -104,36 +104,26 @@ export class FaceRecognitionService {
           console.log("[FaceRecognition] Age/Gender model URI:", ageGenderUrl);
         }
       } else {
-        // ── Bundled fallback (in-repo / monorepo usage) ────────────────────
-        // Static require() calls resolved by Metro at build time.
-        console.log("[FaceRecognition] Step 1: Loading detection model asset (bundled fallback)");
-        const detAsset = Asset.fromModule(require("../../assets/models/det_500m.onnx"));
-        await detAsset.downloadAsync();
-        detUrl = detAsset.localUri || detAsset.uri;
-        console.log("[FaceRecognition] Detection model URL:", detUrl);
-
-        console.log("[FaceRecognition] Step 2: Loading recognition model asset (bundled fallback)");
-        const recAsset = Asset.fromModule(require("../../assets/models/w600k_mbf.onnx"));
-        await recAsset.downloadAsync();
-        recUrl = recAsset.localUri || recAsset.uri;
-        console.log("[FaceRecognition] Recognition model URL:", recUrl);
-
-        try {
-          console.log("[FaceRecognition] Step 2b: Attempting to load age/gender model asset (bundled fallback)");
-          const ageGenderAsset = Asset.fromModule(require("../../assets/models/genderage.onnx"));
-          await ageGenderAsset.downloadAsync();
-          ageGenderUrl = ageGenderAsset.localUri || ageGenderAsset.uri;
-          console.log("[FaceRecognition] Age/Gender model URL:", ageGenderUrl);
-        } catch (e) {
-          console.log("[FaceRecognition] Optional Age/Gender bundled asset not found. Skipping.");
-        }
+        throw new Error(
+          "[FaceZkSdk] SDK not initialized. Call initializeSdk() before loading face recognition models.\n" +
+          "Required setup:\n" +
+          "  import { initializeSdk } from '@jupitermetalabs/face-zk-sdk/react-native';\n" +
+          "  await initializeSdk({\n" +
+          "    models: {\n" +
+          "      detection:   { url: 'https://your-cdn.com/det_500m.onnx' },\n" +
+          "      recognition: { url: 'https://your-cdn.com/w600k_mbf.onnx' },\n" +
+          "      antispoof:   { url: 'https://your-cdn.com/antispoof.onnx' },  // required for liveness\n" +
+          "    },\n" +
+          "  });"
+        );
       }
 
+      const allowedDomains = FaceZkSdk.getConfig().allowedDomains;
+
       console.log("[FaceRecognition] Step 2.5: Loading ONNX WASM asset");
-      const wasmAsset = Asset.fromModule(require("../../assets/onnx/ort-wasm-simd.wasm"));
-      await wasmAsset.downloadAsync();
-      const wasmUrl = wasmAsset.localUri || wasmAsset.uri;
-      console.log("[FaceRecognition] ONNX WASM URL:", wasmUrl);
+      // ORT WASM resolved from runtimeAssets config or bundled fallback
+      const wasmBase64Raw = await resolveRuntimeAsset('ortWasm', 'base64', allowedDomains);
+      console.log("[FaceRecognition] ONNX WASM loaded via resolveRuntimeAsset");
 
       console.log("[FaceRecognition] Step 3: Reading model files as base64");
       // Read models as base64 to send to WebView
@@ -155,9 +145,8 @@ export class FaceRecognitionService {
         "KB",
       );
 
-      const wasmBase64 = await FileSystem.readAsStringAsync(wasmUrl, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      // Strip whitespace that can cause atob() failures in the WebView (same as useOnnxLoader)
+      const wasmBase64 = wasmBase64Raw.replace(/\s/g, '');
       console.log(
         "[FaceRecognition] ONNX WASM size:",
         Math.round(wasmBase64.length / 1024),

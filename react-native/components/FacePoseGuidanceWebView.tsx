@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-import { Asset } from "expo-asset";
 import { useCameraPermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system/legacy";
 import React, { useEffect, useRef, useState } from "react";
@@ -28,6 +27,10 @@ import {
     View,
 } from "react-native";
 import { WebView } from "react-native-webview";
+import { FaceZkSdk } from "../../FaceZkSdk";
+import { BUNDLED_RUNTIME_ASSETS } from "../bundledRuntimeAssets";
+import { resolveModelUri } from "../utils/resolveModelUri";
+import { resolveRuntimeAsset } from "../utils/resolveRuntimeAsset";
 
 interface FacePoseGuidanceWebViewProps {
   referenceImageUri?: string;
@@ -113,46 +116,54 @@ export const FacePoseGuidanceWebView: React.FC<
   const loadResources = async () => {
     try {
       console.log("[FacePoseGuidance] Loading resources...");
-      const htmlAsset = Asset.fromModule(
-        require("../../assets/face-guidance/index.html"),
-      );
-      const jsAsset = Asset.fromModule(
-        require("../../assets/face-guidance/pose-guidance.js.txt"),
-      );
-      const logicAsset = Asset.fromModule(
-        require("../../assets/face-guidance/face-logic.js.txt"),
-      );
-      const antispoofAsset = Asset.fromModule(
-        require("../../assets/liveness/antispoof.js.txt"),
-      );
-      const modelAsset = Asset.fromModule(
-        require("../../assets/models/antispoof.onnx"),
-      );
 
-      await Promise.all([
-        htmlAsset.downloadAsync(),
-        jsAsset.downloadAsync(),
-        logicAsset.downloadAsync(),
-        antispoofAsset.downloadAsync(),
-        modelAsset.downloadAsync(),
-      ]);
+      // antispoof model must be provided via initializeSdk({ models: { antispoof } })
+      if (!FaceZkSdk.isInitialized()) {
+        throw new Error(
+          "[FaceZkSdk] SDK not initialized. Call initializeSdk() before using face guidance.\n" +
+          "Required: initializeSdk({ models: { detection, recognition, antispoof: { url: '...' } } })"
+        );
+      }
+      const sdkConfig = FaceZkSdk.getConfig();
+      if (!sdkConfig.models.antispoof) {
+        throw new Error(
+          "[FaceZkSdk] models.antispoof is required for face pose guidance but was not provided.\n" +
+          "Add it to initializeSdk(): { models: { ..., antispoof: { url: 'https://...' } } }"
+        );
+      }
+
+      const allowedDomains = sdkConfig.allowedDomains;
+
+      // Pick runtime asset source: config override if provided, else bundled fallback.
+      // Used in the web branch where we need the URI before fetching text content.
+      const getRuntimeSource = (key: keyof typeof BUNDLED_RUNTIME_ASSETS) =>
+        sdkConfig.runtimeAssets?.[key] ?? BUNDLED_RUNTIME_ASSETS[key];
 
       let html, jsContent, logicContent, antispoofContent, modelBase64;
 
       if (Platform.OS === "web") {
-        // On Web, read from URI (fetched)
-        const htmlRes = await fetch(htmlAsset.uri);
+        // On Web: resolve each asset to a URI then fetch its text content.
+        // Uses getRuntimeSource so runtimeAssets config overrides apply on web too.
+        const [htmlUri, jsUri, logicUri, antispoofJsUri, modelUri] = await Promise.all([
+          resolveModelUri(getRuntimeSource('faceGuidanceHtml'), undefined, allowedDomains),
+          resolveModelUri(getRuntimeSource('faceGuidancePoseJs'), undefined, allowedDomains),
+          resolveModelUri(getRuntimeSource('faceGuidanceLogicJs'), undefined, allowedDomains),
+          resolveModelUri(getRuntimeSource('antispoofJs'), undefined, allowedDomains),
+          resolveModelUri(sdkConfig.models.antispoof, undefined, allowedDomains),
+        ]);
+        const [htmlRes, jsRes, logicRes, antispoofRes] = await Promise.all([
+          fetch(htmlUri),
+          fetch(jsUri),
+          fetch(logicUri),
+          fetch(antispoofJsUri),
+        ]);
         html = await htmlRes.text();
-        const jsRes = await fetch(jsAsset.uri);
         jsContent = await jsRes.text();
-        const logicRes = await fetch(logicAsset.uri);
         logicContent = await logicRes.text();
-        const antispoofRes = await fetch(antispoofAsset.uri);
         antispoofContent = await antispoofRes.text();
 
-        // On Web, we can load directly from URI, no need for Base64 injection which might be too large
-        // We will pass the URI to the WebView
-        modelBase64 = modelAsset.uri; // Reuse variable for URI on Web
+        // On Web, pass model URI directly (avoid large base64 payload)
+        modelBase64 = modelUri;
 
         // Inject Polyfill for ReactNativeWebView on Web
         jsContent = `
@@ -164,23 +175,17 @@ export const FacePoseGuidanceWebView: React.FC<
             };
         `;
       } else {
-        // On Native, read from local filesystem
-        html = await FileSystem.readAsStringAsync(
-          htmlAsset.localUri || htmlAsset.uri,
-        );
-        jsContent = await FileSystem.readAsStringAsync(
-          jsAsset.localUri || jsAsset.uri,
-        );
-        logicContent = await FileSystem.readAsStringAsync(
-          logicAsset.localUri || logicAsset.uri,
-        );
-        antispoofContent = await FileSystem.readAsStringAsync(
-          antispoofAsset.localUri || antispoofAsset.uri,
-        );
-        modelBase64 = await FileSystem.readAsStringAsync(
-          modelAsset.localUri || modelAsset.uri,
-          { encoding: FileSystem.EncodingType.Base64 },
-        );
+        // On Native: resolveRuntimeAsset handles URI resolution + FileSystem read in one call
+        [html, jsContent, logicContent, antispoofContent] = await Promise.all([
+          resolveRuntimeAsset('faceGuidanceHtml', 'utf8', allowedDomains),
+          resolveRuntimeAsset('faceGuidancePoseJs', 'utf8', allowedDomains),
+          resolveRuntimeAsset('faceGuidanceLogicJs', 'utf8', allowedDomains),
+          resolveRuntimeAsset('antispoofJs', 'utf8', allowedDomains),
+        ]);
+        const antispoofUri = await resolveModelUri(sdkConfig.models.antispoof, undefined, allowedDomains);
+        modelBase64 = await FileSystem.readAsStringAsync(antispoofUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
       }
 
       // Inject JS into HTML
