@@ -34,12 +34,13 @@ import { faceRecognitionService } from "../services/FaceRecognition";
  *
  * @returns FaceEmbeddingProvider implementation
  */
-export function createFaceEmbeddingProvider(): FaceEmbeddingProvider {
+export function createFaceEmbeddingProvider(config?: { correctMirrorForGender?: boolean }): FaceEmbeddingProvider {
   return {
     async processImageForEmbedding(imageUri: string) {
       // Delegate to existing service
       const result = await faceRecognitionService.processImageForEmbedding(
         imageUri,
+        config,
       );
 
       // Return result as-is (it already matches the expected format)

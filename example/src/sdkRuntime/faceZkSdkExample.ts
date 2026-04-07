@@ -18,7 +18,6 @@ import type { FaceZkRuntimeConfig, VerificationOptions, SdkLogger } from "@jupit
 import {
   defaultStorageAdapter,
   createFaceEmbeddingProvider,
-  defaultFaceEmbeddingProvider,
 } from "@jupitermetalabs/face-zk-sdk/react-native";
 
 type LogEvent = Parameters<NonNullable<SdkLogger["onLog"]>>[0];
@@ -108,7 +107,9 @@ export function getIsTestModeFromEnv(): boolean {
  * - computes verification options from test mode
  */
 export function getExampleSdkRuntime(isTestMode: boolean) {
-  const embeddingProvider = defaultFaceEmbeddingProvider ?? createFaceEmbeddingProvider();
+  // correctMirrorForGender: true — liveness WebView captures frames with a horizontal mirror
+  // transform; flip the tensor before gender/age inference only (embedding/matching unaffected).
+  const embeddingProvider = createFaceEmbeddingProvider({ correctMirrorForGender: true });
 
   return {
     sdkConfig: exampleFaceZkRuntimeConfig,
