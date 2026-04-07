@@ -165,6 +165,9 @@ export const FaceZkVerificationFlow: React.FC<
   const [zkBridge, setZkBridge] = useState<ZkProofBridge | null>(null);
   const [outcome, setOutcome] = useState<VerificationOutcome | null>(null);
 
+  // FaceMesh landmarks from the liveness WebView, stored for research/analytics.
+  const faceMeshLandmarksRef = useRef<Array<{ x: number; y: number; z: number }> | null>(null);
+
   // Liveness result produced by ZkFaceAuth WebView (ONNX anti-spoof score + challenges).
   // Stored in a ref so runVerification always reads the latest value without needing
   // it in the dependency array.
@@ -238,11 +241,12 @@ export const FaceZkVerificationFlow: React.FC<
   };
 
   // Handle liveness success (image captured)
-  const handleLivenessSuccess = async (imageUri: string, metadata?: { spoofScore?: number }) => {
+  const handleLivenessSuccess = async (imageUri: string, metadata?: { spoofScore?: number; faceMeshLandmarks?: Array<{ x: number; y: number; z: number }> }) => {
     // Build a LivenessProvider from the WebView's ONNX anti-spoof score so that
     // verifyOnly / verifyWithProof can record the real result in VerificationOutcome.
     const spoofScore: number = metadata?.spoofScore ?? 0; // 0 = real, 1 = spoof
     webViewLivenessProviderRef.current = createLivenessProvider({ spoofScore });
+    faceMeshLandmarksRef.current = metadata?.faceMeshLandmarks ?? null;
     console.log("[FaceZkVerificationFlow] Liveness passed, image captured:", imageUri.substring(0, 80) + "...");
     setStage("CAPTURING");
 
@@ -357,6 +361,11 @@ export const FaceZkVerificationFlow: React.FC<
         score: result.score,
         hasZkProof: !!result.zkProof,
       });
+
+      // Merge FaceMesh landmarks into live capture result if available
+      if (faceMeshLandmarksRef.current && result.live) {
+        result = { ...result, live: { ...result.live, faceMeshLandmarks: faceMeshLandmarksRef.current } };
+      }
 
       setOutcome(result);
       setStage("DONE");

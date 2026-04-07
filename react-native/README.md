@@ -11,21 +11,33 @@ This directory contains the React Native-specific UI components, adapters, and e
 
 ## Initialization
 
-Unlike previous versions, the SDK provides a unified initialization function exported from the React Native entry point to streamline setup.
+Always import from `@jupitermetalabs/face-zk-sdk/react-native` — this subpath sets up the WebView bridge, FileSystem bindings, and platform adapters. Importing from the root package (`@jupitermetalabs/face-zk-sdk`) will skip this setup and fail at runtime.
 
 ### **Initialization Example**
 ```typescript
 import { initializeSdk } from '@jupitermetalabs/face-zk-sdk/react-native';
 
-// Call this as early as possible in your application lifecycle
+// Call once at app startup (e.g. App.tsx before rendering any SDK components)
 await initializeSdk({
-  // Optional configuration overrides
   models: {
-    cdnBaseUrl: 'https://my-custom-cdn.com/models' 
-  }
+    detection:   { module: require('./assets/models/det_500m.onnx') },
+    recognition: { module: require('./assets/models/w600k_mbf.onnx') },
+    antispoof:   { module: require('./assets/models/antispoof.onnx') },
+    ageGender:   { module: require('./assets/models/genderage.onnx') }, // optional
+  },
 });
 ```
-*Note: This handles both the internal SDK configuration and the necessary React Native dependency injection automatically.*
+
+Or using CDN URLs (models downloaded and cached on first use):
+```typescript
+await initializeSdk({
+  models: {
+    detection:   { url: 'https://your-cdn.com/det_500m.onnx' },
+    recognition: { url: 'https://your-cdn.com/w600k_mbf.onnx' },
+    antispoof:   { url: 'https://your-cdn.com/antispoof.onnx' },
+  },
+});
+```
 
 ## Main UI Flows
 
@@ -36,6 +48,19 @@ A drop-in component that guides the user through capturing a reference face imag
 The core verification and proof generation flow. It coordinates the camera feed, captures the live face, compares it to the enrolled reference, and delegates to the ZK WebViews to generate the cryptographic proof.
 
 ## Security Warning: Liveness Provider
-**CRITICAL:** The SDK ships with a `defaultLivenessProvider` that **always evaluates to true (pass)**. This is strictly a placeholder to allow the SDK to compile and run tests.
 
-When integrating this module into a production React Native application, you **must** inject a real liveness provider implementation (e.g., AWS Rekognition, Azure Face, or a custom 3D anti-spoofing model).
+**CRITICAL:** The SDK ships with a `defaultLivenessProvider` that **always evaluates to true (pass)**. This is strictly a placeholder to allow the SDK to run in development.
+
+In production, inject a real liveness provider using `createLivenessProvider`:
+
+```typescript
+import { createLivenessProvider } from '@jupitermetalabs/face-zk-sdk/react-native';
+
+// Use the SDK's built-in WebView anti-spoof score
+const provider = createLivenessProvider({ spoofScore: metadata.spoofScore });
+
+// Or plug in your own liveness service (AWS Rekognition, Azure Face, etc.)
+const provider = createLivenessProvider({ service: myLivenessService, minScore: 0.8 });
+```
+
+Pass the provider via `sdkConfig` or the per-call `livenessProvider` option on `FaceZkVerificationFlow`. `FaceZkVerificationFlow` uses the built-in WebView provider automatically when no override is supplied.

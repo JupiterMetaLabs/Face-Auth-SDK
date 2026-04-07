@@ -1,5 +1,7 @@
 # Face+ZK SDK
 
+[![npm version](https://img.shields.io/badge/npm-0.3.5-blue)](https://www.npmjs.com/package/@jupitermetalabs/face-zk-sdk)
+
 A standalone React Native and Web SDK for face verification and Zero-Knowledge (ZK) proofs.
 
 ## Features
@@ -18,7 +20,6 @@ To keep documentation clean, each major module has its own dedicated documentati
 - [**`config/`**](./config/README.md): Configuration guides, environments, and CDN settings.
 - `storage/`: Built-in storage adapters for persisting enrolled references and proofs.
 - `assets/`: ONNX models and WebView-based liveness/ZK scripts.
-- `example/`: A complete Expo app demonstrating how to integrate the SDK.
 - `example/`: A complete Expo app demonstrating how to integrate the SDK.
 
 ## Getting Started
@@ -178,6 +179,50 @@ Verify a live user against a saved reference.
   onComplete={(outcome) => console.log("Verified!", outcome)}
 />
 ```
+
+---
+
+### 6. Gender & Age Estimation (Optional)
+
+Enable by passing the `ageGender` model in `initializeSdk`. Results are returned automatically alongside every verification and enrollment.
+
+**Enable the model:**
+```typescript
+await initializeSdk({
+  models: {
+    detection:   { module: require('./assets/models/det_500m.onnx') },
+    recognition: { module: require('./assets/models/w600k_mbf.onnx') },
+    antispoof:   { module: require('./assets/models/antispoof.onnx') },
+    ageGender:   { module: require('./assets/models/genderage.onnx') }, // add this
+  },
+});
+```
+
+**Read results from verification:**
+```typescript
+<FaceZkVerificationFlow
+  onComplete={(outcome) => {
+    // outcome.liveCapture is populated after a successful live capture
+    console.log(outcome.liveCapture?.gender); // "Male" | "Female" | "Unknown"
+    console.log(outcome.liveCapture?.age);    // e.g. 28
+  }}
+/>
+```
+
+**Read results from enrollment:**
+```typescript
+<ReferenceEnrollmentFlow
+  onComplete={(template) => {
+    // gender/age stored in template metadata under sdkResponse
+    console.log(template.metadata?.sdkResponse?.gender);
+    console.log(template.metadata?.sdkResponse?.age);
+  }}
+/>
+```
+
+If `ageGender` is not configured, `gender` will be `undefined` and `age` will be `undefined` — the rest of the SDK functions normally.
+
+---
 
 ## Contributing
 Please see the individual `README.md` files in each subdirectory for more technical details on the architecture.

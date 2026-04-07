@@ -20,6 +20,7 @@ let isGuidanceActive = false;
 let stableStartTime = 0;
 let currentStream = null;
 let lastPose = null;
+let lastLandmarks = null;
 let guidanceStatus = { text: "", arrowLeft: false, arrowRight: false, isMatch: false };
 let isRenderLoopActive = false;
 
@@ -60,13 +61,14 @@ function onResults(results) {
 
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
+        lastLandmarks = landmarks;
         const pose = calculatePose(landmarks);
         const gaze = calculateGaze(landmarks);
         const faceWidth = Math.hypot(
             landmarks[454].x - landmarks[234].x,
             landmarks[454].y - landmarks[234].y
         );
-        
+
         lastPose = { ...pose, gaze, faceWidth };
         
         // --- LIVENESS CHECK ---
@@ -327,7 +329,7 @@ function captureSuccess() {
     
     // Capture Image
     const dataUrl = canvasElement.toDataURL('image/jpeg', 0.9);
-    sendMessage('success', { image: dataUrl, pose: TARGET_POSE });
+    sendMessage('success', { image: dataUrl, pose: lastPose || TARGET_POSE, faceMeshLandmarks: lastLandmarks || undefined });
 }
 
 

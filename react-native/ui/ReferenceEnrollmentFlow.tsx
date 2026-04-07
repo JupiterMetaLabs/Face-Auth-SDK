@@ -182,7 +182,7 @@ export const ReferenceEnrollmentFlow: React.FC<
   // Handle image capture from pose guidance
   const handleCaptureSuccess = async (
     imageUri: string,
-    captureMetadata?: { targetPose?: unknown; capturedPose?: unknown },
+    captureMetadata?: { targetPose?: unknown; capturedPose?: unknown; faceMeshLandmarks?: Array<{ x: number; y: number; z: number }> },
   ) => {
     console.log("[ReferenceEnrollmentFlow] Image captured:", imageUri);
     setStage("PROCESSING");
@@ -201,6 +201,7 @@ export const ReferenceEnrollmentFlow: React.FC<
               antiSpoofCheckPassed: true,
               targetPose: captureMetadata?.targetPose ?? null,
               capturedPose: captureMetadata?.capturedPose ?? null,
+              faceMeshLandmarks: captureMetadata?.faceMeshLandmarks ?? null,
             },
           },
         },

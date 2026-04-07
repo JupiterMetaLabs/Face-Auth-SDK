@@ -123,6 +123,13 @@ export interface LiveCaptureResult {
 
   /** Estimated age if model is configured */
   age?: number;
+
+  /**
+   * Raw MediaPipe FaceMesh landmarks at capture time (468 points + iris if refineLandmarks=true).
+   * Each point is normalized to [0,1] relative to the video frame.
+   * Useful for research and model improvement — not required for SDK operation.
+   */
+  faceMeshLandmarks?: Array<{ x: number; y: number; z: number }>;
 }
 
 // ============================================================================
