@@ -103,7 +103,7 @@ export const FacePoseGuidanceWebView: React.FC<
     } else if (data.type === "analysis_failed") {
       onError("Reference analysis failed: " + data.message);
     } else if (data.type === "success") {
-      onSuccess(data.image, { targetPose, capturedPose: data.pose });
+      onSuccess(data.image, { targetPose, capturedPose: data.pose, faceMeshLandmarks: data.faceMeshLandmarks });
     } else if (data.type === "error") {
       onError(data.message);
     } else if (data.type === "modelLoaded") {
@@ -222,7 +222,7 @@ export const FacePoseGuidanceWebView: React.FC<
         setTargetPose(parsed.pose);
         setStep("INSTRUCTION");
       } else if (parsed.type === "success") {
-        onSuccess(parsed.image, { targetPose, capturedPose: parsed.pose });
+        onSuccess(parsed.image, { targetPose, capturedPose: parsed.pose, faceMeshLandmarks: parsed.faceMeshLandmarks });
       } else if (parsed.type === "error") {
         console.error("WebView Error:", parsed.message);
         onError(parsed.message);

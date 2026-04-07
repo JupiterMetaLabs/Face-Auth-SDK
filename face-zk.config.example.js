@@ -66,23 +66,30 @@ module.exports = {
 // Runtime initialization (put this in your App.tsx / app entry point)
 // ============================================================================
 //
-// import { FaceZkSdk } from '@jupitermetalabs/face-zk-sdk';
+// IMPORTANT: Always import from '@jupitermetalabs/face-zk-sdk/react-native',
+// NOT from '@jupitermetalabs/face-zk-sdk' directly. The react-native subpath
+// sets up the WebView bridge and FileSystem bindings required at runtime.
+//
+// import { initializeSdk } from '@jupitermetalabs/face-zk-sdk/react-native';
 //
 // // Option A – bundled assets (run `npx face-zk setup` first, then require() them)
-// await FaceZkSdk.init({
+// await initializeSdk({
 //   models: {
 //     detection:   { module: require('./assets/face-zk/det_500m.onnx') },
 //     recognition: { module: require('./assets/face-zk/w600k_mbf.onnx') },
 //     antispoof:   { module: require('./assets/face-zk/antispoof.onnx') },
+//     ageGender:   { module: require('./assets/face-zk/genderage.onnx') }, // optional
 //     wasm:        { module: require('./assets/face-zk/zk_face_wasm_bg.wasm') },
 //     zkWorkerHtml:{ module: require('./assets/face-zk/zk-worker.html') },
 //   },
 // });
 //
 // // Option B – CDN download (models fetched on first use, cached on device)
-// await FaceZkSdk.init({
+// await initializeSdk({
 //   models: {
 //     detection:   { url: 'https://cdn.jmdt.io/face-zk/v1/det_500m.onnx' },
 //     recognition: { url: 'https://cdn.jmdt.io/face-zk/v1/w600k_mbf.onnx' },
+//     antispoof:   { url: 'https://cdn.jmdt.io/face-zk/v1/antispoof.onnx' },
+//     ageGender:   { url: 'https://cdn.jmdt.io/face-zk/v1/genderage.onnx' }, // optional
 //   },
 // });

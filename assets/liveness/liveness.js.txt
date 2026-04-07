@@ -80,6 +80,7 @@ let lastValidationTime = 0;
 
 let captureStableFrames = 0; // For near-field stability check
 let readyToCapture = false;
+let lastLandmarks = null;
 
 const SPOOF_THRESHOLD_FINAL = 0.65; // Per-sample fail threshold (only flag high-confidence spoofs)
 const SPOOF_EMA_FAIL_THRESHOLD = 0.60; // EMA-based final decision threshold
@@ -434,6 +435,7 @@ function onResults(results) {
   }
 
   const landmarks = results.multiFaceLandmarks[0];
+  lastLandmarks = landmarks;
 
   // Calculate face width for distance checks
   const faceWidth = Math.hypot(
@@ -788,6 +790,7 @@ function captureEvidence() {
         image: dataUrl,
         metadata: {
           spoofScore: spoofVerdict.averageScore,
+          faceMeshLandmarks: lastLandmarks || undefined,
         },
       }),
     );
