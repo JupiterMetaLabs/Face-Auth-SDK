@@ -185,7 +185,7 @@ export class FaceRecognitionService {
     }
   }
 
-  async processImageForEmbedding(imageUri: string): Promise<FaceProcessResult> {
+  async processImageForEmbedding(imageUri: string, options?: { correctMirrorForGender?: boolean }): Promise<FaceProcessResult> {
     if (!this.bridge || !this.modelsLoaded) {
       throw new Error("Models not loaded");
     }
@@ -297,8 +297,16 @@ export class FaceRecognitionService {
       let estimatedAge: number = 0;
       try {
         console.log("[FaceRecognition] Step 7: Running Age/Gender inference (skip if not loaded)...");
-        // Python-equivalent center-crop from full 640×640 image (1.5× bbox padding, [0,255])
-        const ageGenderTensor = this.cropFaceForGenderAge(processedData, box);
+        // When the source image was captured mirrored (e.g. liveness WebView), flip the tensor
+        // and mirror the box x-coords so gender inference sees an unmirrored face.
+        // Embedding and matching use processedData/box unchanged above.
+        const genderData = options?.correctMirrorForGender
+          ? this.flipTensorHorizontalCHW(processedData, 640, 640)
+          : processedData;
+        const genderBox = options?.correctMirrorForGender
+          ? { ...box, x1: 640 - box.x2, x2: 640 - box.x1 }
+          : box;
+        const ageGenderTensor = this.cropFaceForGenderAge(genderData, genderBox);
         const ageGenderRes = await this.bridge.runAgeGender(ageGenderTensor, 96, 96);
         detectedGender = ageGenderRes.gender;
         estimatedAge = ageGenderRes.age;
@@ -776,6 +784,24 @@ export class FaceRecognitionService {
       dst[i] = src[i] * 128.0 + 127.5;
     }
     return dst;
+  }
+
+  /**
+   * Flips a CHW Float32Array horizontally (mirror on vertical axis).
+   * Used to correct images captured with a horizontal mirror transform before gender inference.
+   */
+  private flipTensorHorizontalCHW(data: Float32Array, width: number, height: number): Float32Array {
+    const flipped = new Float32Array(data.length);
+    const chSize = width * height;
+    const channels = data.length / chSize;
+    for (let c = 0; c < channels; c++) {
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          flipped[c * chSize + y * width + x] = data[c * chSize + y * width + (width - 1 - x)];
+        }
+      }
+    }
+    return flipped;
   }
 
   /**

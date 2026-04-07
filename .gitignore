@@ -40,3 +40,7 @@ temp/
 example/node_modules/
 example/.expo/
 example/dist/
+example/android/app/src/main/assets/
+example/android/app/src/main/res/raw/_assets_*
+example/android/app/src/main/res/raw/keep.xml
+example/android/app/src/main/res/drawable-*/node_modules_*.png
